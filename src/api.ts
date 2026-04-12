@@ -102,7 +102,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         return undefined as T;
       }
 
-      return response.json() as Promise<T>;
+      const rawBody = await response.text();
+      if (!rawBody.trim()) {
+        return undefined as T;
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        return JSON.parse(rawBody) as T;
+      }
+
+      return rawBody as T;
     })
     .catch((error: unknown) => {
       if (error instanceof DOMException && error.name === 'AbortError') {
