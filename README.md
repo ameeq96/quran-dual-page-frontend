@@ -33,6 +33,7 @@ Notes:
 - `npm install` automatically runs `npm run build`
 - `npm start` serves the built `dist/` app through Node.js
 - React routes use SPA fallback through `server.js`
+- `public/.htaccess` is copied into `dist/` so direct routes like `/login` work on Hostinger Apache hosting too
 - Login page supports Google reCAPTCHA when `VITE_RECAPTCHA_SITE_KEY` is configured
 
 ## Hostinger Deploy
