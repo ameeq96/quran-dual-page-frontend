@@ -1,6 +1,13 @@
 import { clearAdminToken, getAdminToken, notifyUnauthorized } from './auth';
 
 const API_URL = import.meta.env.VITE_ADMIN_API_URL || 'http://localhost:5052';
+const GET_CACHE_TTL_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 12_000;
+
+type CachedResponse = {
+  expiresAt: number;
+  value: unknown;
+};
 
 export type PaginationMeta = {
   page: number;
@@ -40,32 +47,155 @@ export type AssetPackSummary = {
   pages?: AssetPackPage[];
 };
 
+const responseCache = new Map<string, CachedResponse>();
+const inflightRequests = new Map<string, Promise<unknown>>();
+
 function authHeaders(additional?: HeadersInit) {
-  return {
-    Authorization: `Bearer ${getAdminToken()}`,
-    ...(additional ?? {}),
-  };
+  const headers = new Headers(additional);
+  const token = getAdminToken();
+
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  return headers;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const requestKey = `${method}:${path}`;
+  const isGetRequest = method === 'GET';
+
+  if (isGetRequest) {
+    const cached = responseCache.get(requestKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
+    }
+
+    const inflight = inflightRequests.get(requestKey);
+    if (inflight) {
+      return inflight as Promise<T>;
+    }
+  }
+
+  const controller = new AbortController();
+  const timeoutHandle = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  const execute = fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      ...authHeaders(init?.headers),
+    signal: controller.signal,
+    headers: authHeaders(init?.headers),
+  })
+    .then(async (response) => {
+      if (response.status === 401) {
+        clearAdminToken();
+        invalidateApiCache();
+        notifyUnauthorized();
+        throw new Error('Unauthorized');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      return response.json() as Promise<T>;
+    })
+    .catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error('Request timed out');
+      }
+
+      throw error;
+    })
+    .finally(() => {
+      window.clearTimeout(timeoutHandle);
+    });
+
+  if (!isGetRequest) {
+    return execute;
+  }
+
+  const pending = execute
+    .then((value) => {
+      responseCache.set(requestKey, {
+        expiresAt: Date.now() + GET_CACHE_TTL_MS,
+        value,
+      });
+      return value;
+    })
+    .finally(() => {
+      inflightRequests.delete(requestKey);
+    });
+
+  inflightRequests.set(requestKey, pending);
+  return pending;
+}
+
+function invalidateApiCache(prefixes?: string[]) {
+  if (!prefixes || prefixes.length === 0) {
+    responseCache.clear();
+    inflightRequests.clear();
+    return;
+  }
+
+  for (const key of Array.from(responseCache.keys())) {
+    if (prefixes.some((prefix) => key.includes(prefix))) {
+      responseCache.delete(key);
+    }
+  }
+
+  for (const key of Array.from(inflightRequests.keys())) {
+    if (prefixes.some((prefix) => key.includes(prefix))) {
+      inflightRequests.delete(key);
+    }
+  }
+}
+
+async function mutate<T>(
+  path: string,
+  init: RequestInit,
+  invalidationPrefixes: string[],
+): Promise<T> {
+  const response = await request<T>(path, init);
+  invalidateApiCache(invalidationPrefixes);
+  return response;
+}
+
+function jsonMutation<T>(
+  path: string,
+  method: 'POST' | 'PATCH' | 'DELETE',
+  body: unknown,
+  invalidationPrefixes: string[],
+) {
+  return mutate<T>(
+    path,
+    {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     },
-  });
+    invalidationPrefixes,
+  );
+}
 
-  if (response.status === 401) {
-    clearAdminToken();
-    notifyUnauthorized();
-    throw new Error('Unauthorized');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
+function formMutation<T>(
+  path: string,
+  method: 'POST' | 'PATCH',
+  body: FormData,
+  invalidationPrefixes: string[],
+) {
+  return mutate<T>(
+    path,
+    {
+      method,
+      body,
+    },
+    invalidationPrefixes,
+  );
 }
 
 function withPagination(path: string, pagination?: PaginationInput) {
@@ -94,6 +224,7 @@ export function login(email: string, password: string) {
     if (!res.ok) {
       throw new Error(`Login failed: ${res.status}`);
     }
+    invalidateApiCache();
     return res.json() as Promise<{ accessToken: string }>;
   });
 }
@@ -170,11 +301,12 @@ export function fetchUsers(pagination?: PaginationInput) {
 }
 
 export function updateUserActive(id: number, active: boolean) {
-  return request<{ id: number; active: boolean }>(`/users/${id}/active`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ active }),
-  });
+  return jsonMutation<{ id: number; active: boolean }>(
+    `/users/${id}/active`,
+    'PATCH',
+    { active },
+    ['/users', '/admin/overview'],
+  );
 }
 
 export function fetchUserSync(id: number) {
@@ -202,19 +334,21 @@ export function fetchEditions(pagination?: PaginationInput) {
 }
 
 export function upsertEdition(payload: { id?: number; key: string; label: string; enabled?: boolean }) {
-  return request<{ id: number; key: string; label: string; enabled: boolean }>('/editions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  return jsonMutation<{ id: number; key: string; label: string; enabled: boolean }>(
+    '/editions',
+    'POST',
+    payload,
+    ['/editions', '/admin/content', '/admin/overview', '/public/config'],
+  );
 }
 
 export function toggleEdition(id: number, enabled: boolean) {
-  return request<{ id: number; enabled: boolean }>(`/editions/${id}/enabled`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled }),
-  });
+  return jsonMutation<{ id: number; enabled: boolean }>(
+    `/editions/${id}/enabled`,
+    'PATCH',
+    { enabled },
+    ['/editions', '/admin/content', '/admin/overview', '/public/config'],
+  );
 }
 
 export function fetchAnnouncements(pagination?: PaginationInput) {
@@ -230,19 +364,21 @@ export function upsertAnnouncement(payload: {
   active?: boolean;
   publishAt?: string;
 }) {
-  return request<{ id: number; title: string; body: string; active: boolean }>('/announcements', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  return jsonMutation<{ id: number; title: string; body: string; active: boolean }>(
+    '/announcements',
+    'POST',
+    payload,
+    ['/announcements', '/admin/overview', '/public/config'],
+  );
 }
 
 export function toggleAnnouncement(id: number, active: boolean) {
-  return request<{ id: number; active: boolean }>(`/announcements/${id}/active`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ active }),
-  });
+  return jsonMutation<{ id: number; active: boolean }>(
+    `/announcements/${id}/active`,
+    'PATCH',
+    { active },
+    ['/announcements', '/admin/overview', '/public/config'],
+  );
 }
 
 export function fetchSettings(pagination?: PaginationInput) {
@@ -252,11 +388,12 @@ export function fetchSettings(pagination?: PaginationInput) {
 }
 
 export function upsertSetting(payload: { id?: number; key: string; value: string }) {
-  return request<{ id: number; key: string; value: string }>('/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  return jsonMutation<{ id: number; key: string; value: string }>(
+    '/settings',
+    'POST',
+    payload,
+    ['/settings', '/admin/overview', '/admin/content', '/public/config'],
+  );
 }
 
 export function fetchFlags(pagination?: PaginationInput) {
@@ -266,11 +403,12 @@ export function fetchFlags(pagination?: PaginationInput) {
 }
 
 export function toggleFlag(id: number, enabled: boolean) {
-  return request<{ id: number; key: string; enabled: boolean }>(`/settings/flags/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled }),
-  });
+  return jsonMutation<{ id: number; key: string; enabled: boolean }>(
+    `/settings/flags/${id}`,
+    'PATCH',
+    { enabled },
+    ['/settings/flags', '/admin/overview', '/admin/content', '/public/config'],
+  );
 }
 
 export function fetchAnalytics() {
@@ -337,23 +475,12 @@ export async function uploadAssetPack(edition: string, version: string, file: Fi
   const form = new FormData();
   form.append('file', file);
   form.append('version', version);
-
-  const response = await fetch(`${API_URL}/asset-packs/${edition}/upload`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: form,
-  });
-
-  if (response.status === 401) {
-    clearAdminToken();
-    notifyUnauthorized();
-    throw new Error('Unauthorized');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Upload failed: ${response.status}`);
-  }
-  return response.json();
+  return formMutation(
+    `/asset-packs/${edition}/upload`,
+    'POST',
+    form,
+    ['/asset-packs', '/admin/content', '/admin/overview', '/public/config'],
+  );
 }
 
 export async function uploadAssetPage(
@@ -366,30 +493,22 @@ export async function uploadAssetPage(
   form.append('file', file);
   form.append('version', version);
   form.append('pageNumber', String(pageNumber));
-
-  const response = await fetch(`${API_URL}/asset-packs/${edition}/pages/upload`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: form,
-  });
-
-  if (response.status === 401) {
-    clearAdminToken();
-    notifyUnauthorized();
-    throw new Error('Unauthorized');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Page upload failed: ${response.status}`);
-  }
-
-  return response.json();
+  return formMutation(
+    `/asset-packs/${edition}/pages/upload`,
+    'POST',
+    form,
+    [`/asset-packs/${edition}/${encodeURIComponent(version)}/pages`, '/asset-packs', '/public/config'],
+  );
 }
 
 export function deleteAssetPage(edition: string, version: string, pageNumber: number) {
-  return request(`/asset-packs/${edition}/${encodeURIComponent(version)}/pages/${pageNumber}`, {
-    method: 'DELETE',
-  });
+  return mutate(
+    `/asset-packs/${edition}/${encodeURIComponent(version)}/pages/${pageNumber}`,
+    {
+      method: 'DELETE',
+    },
+    [`/asset-packs/${edition}/${encodeURIComponent(version)}/pages`, '/asset-packs', '/public/config'],
+  );
 }
 
 export async function updateAssetPage(
@@ -405,35 +524,21 @@ export async function updateAssetPage(
   if (payload.file) {
     form.append('file', payload.file);
   }
-
-  const response = await fetch(
-    `${API_URL}/asset-packs/${edition}/${encodeURIComponent(version)}/pages/${pageNumber}`,
-    {
-      method: 'PATCH',
-      headers: authHeaders(),
-      body: form,
-    },
+  return formMutation(
+    `/asset-packs/${edition}/${encodeURIComponent(version)}/pages/${pageNumber}`,
+    'PATCH',
+    form,
+    [`/asset-packs/${edition}/${encodeURIComponent(version)}/pages`, '/asset-packs', '/public/config'],
   );
-
-  if (response.status === 401) {
-    clearAdminToken();
-    notifyUnauthorized();
-    throw new Error('Unauthorized');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Page update failed: ${response.status}`);
-  }
-
-  return response.json();
 }
 
 export async function activateAssetPack(edition: string, version: string) {
-  return request(`/asset-packs/${edition}/activate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ version }),
-  });
+  return jsonMutation(
+    `/asset-packs/${edition}/activate`,
+    'POST',
+    { version },
+    ['/asset-packs', '/admin/content', '/admin/overview', '/public/config'],
+  );
 }
 
 export function assetPreviewUrl(relativePath: string) {
@@ -444,29 +549,19 @@ export async function uploadContentDataset(key: string, version: string, file: F
   const form = new FormData();
   form.append('file', file);
   form.append('version', version);
-
-  const response = await fetch(`${API_URL}/content-datasets/${key}/upload`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: form,
-  });
-
-  if (response.status === 401) {
-    clearAdminToken();
-    notifyUnauthorized();
-    throw new Error('Unauthorized');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Upload failed: ${response.status}`);
-  }
-  return response.json();
+  return formMutation(
+    `/content-datasets/${key}/upload`,
+    'POST',
+    form,
+    ['/content-datasets', '/admin/content', '/admin/overview', '/public/config'],
+  );
 }
 
 export async function activateContentDataset(key: string, version: string) {
-  return request(`/content-datasets/${key}/activate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ version }),
-  });
+  return jsonMutation(
+    `/content-datasets/${key}/activate`,
+    'POST',
+    { version },
+    ['/content-datasets', '/admin/content', '/admin/overview', '/public/config'],
+  );
 }

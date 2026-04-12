@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   fetchUserSync,
   fetchUsers,
@@ -216,6 +216,7 @@ export default function UsersPage() {
   const [selectedSync, setSelectedSync] = useState<UserSyncDetail | null>(null);
   const [selectedTab, setSelectedTab] = useState<DetailTabKey>('summary');
   const [filterQuery, setFilterQuery] = useState('');
+  const deferredFilterQuery = useDeferredValue(filterQuery);
 
   const pageSize = 10;
 
@@ -276,39 +277,39 @@ export default function UsersPage() {
   const filteredBookmarks = useMemo(
     () =>
       parsedSync.bookmarks.filter((entry) =>
-        matchesFilter([entry.pageNumber, entry.label, entry.folder, entry.createdAtIso], filterQuery),
+        matchesFilter([entry.pageNumber, entry.label, entry.folder, entry.createdAtIso], deferredFilterQuery),
       ),
-    [parsedSync.bookmarks, filterQuery],
+    [deferredFilterQuery, parsedSync.bookmarks],
   );
 
   const filteredNotes = useMemo(
     () =>
       parsedSync.notes.filter((entry) =>
-        matchesFilter([entry.pageNumber, entry.note], filterQuery),
+        matchesFilter([entry.pageNumber, entry.note], deferredFilterQuery),
       ),
-    [parsedSync.notes, filterQuery],
+    [deferredFilterQuery, parsedSync.notes],
   );
 
   const filteredFavorites = useMemo(
     () =>
-      parsedSync.favorites.filter((entry) => matchesFilter([entry], filterQuery)),
-    [parsedSync.favorites, filterQuery],
+      parsedSync.favorites.filter((entry) => matchesFilter([entry], deferredFilterQuery)),
+    [deferredFilterQuery, parsedSync.favorites],
   );
 
   const filteredHistory = useMemo(
     () =>
       parsedSync.history.filter((entry) =>
-        matchesFilter([entry.pageNumber, entry.viewedAtIso], filterQuery),
+        matchesFilter([entry.pageNumber, entry.viewedAtIso], deferredFilterQuery),
       ),
-    [parsedSync.history, filterQuery],
+    [deferredFilterQuery, parsedSync.history],
   );
 
   const filteredHifz = useMemo(
     () =>
       parsedSync.hifz.filter((entry) =>
-        matchesFilter([entry.pageNumber, entry.strength, entry.updatedAtIso, entry.reviewCount], filterQuery),
+        matchesFilter([entry.pageNumber, entry.strength, entry.updatedAtIso, entry.reviewCount], deferredFilterQuery),
       ),
-    [parsedSync.hifz, filterQuery],
+    [deferredFilterQuery, parsedSync.hifz],
   );
 
   const listedActiveUsers = useMemo(
