@@ -396,6 +396,12 @@ export function upsertSetting(payload: { id?: number; key: string; value: string
   );
 }
 
+export function fetchSettingByKey(key: string) {
+  return request<{ id: number; key: string; value: string } | null>(
+    `/settings/by-key/${encodeURIComponent(key)}`,
+  );
+}
+
 export function fetchFlags(pagination?: PaginationInput) {
   return request<PaginatedResponse<{ id: number; key: string; enabled: boolean }>>(
     withPagination('/settings/flags', pagination),

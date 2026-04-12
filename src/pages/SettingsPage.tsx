@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   fetchFlags,
+  fetchSettingByKey,
   fetchSettings,
   type PaginationMeta,
   toggleFlag,
@@ -33,6 +34,7 @@ import {
 
 type Setting = { id: number; key: string; value: string };
 type Flag = { id: number; key: string; enabled: boolean };
+type AiProviderMode = 'local' | 'ollama' | 'chatgpt' | 'custom';
 
 const suggestedSettingKeys = [
   'app_title',
@@ -51,6 +53,61 @@ const suggestedSettingKeys = [
   'ai_default_depth',
 ];
 
+const aiProviderOptions: Array<{
+  value: AiProviderMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'local',
+    label: 'Local assistant',
+    description: 'Mobile app will use the built-in local helper only.',
+  },
+  {
+    value: 'ollama',
+    label: 'Ollama',
+    description: 'Mobile app will call the backend AI proxy, which forwards to Ollama.',
+  },
+  {
+    value: 'chatgpt',
+    label: 'ChatGPT',
+    description: 'Mobile app will call the backend AI proxy, which forwards to OpenAI.',
+  },
+  {
+    value: 'custom',
+    label: 'Custom AI',
+    description: 'Mobile app will call your custom AI endpoint through the backend proxy.',
+  },
+];
+
+function normalizeAiProvider(value?: string | null): AiProviderMode {
+  switch ((value ?? '').trim().toLowerCase()) {
+    case 'ollama':
+      return 'ollama';
+    case 'openai':
+    case 'chatgpt':
+      return 'chatgpt';
+    case 'custom':
+      return 'custom';
+    default:
+      return 'local';
+  }
+}
+
+function defaultAiStatusLabel(provider: AiProviderMode) {
+  switch (provider) {
+    case 'ollama':
+      return 'Ollama is active in the mobile app.';
+    case 'chatgpt':
+      return 'ChatGPT is active in the mobile app.';
+    case 'custom':
+      return 'Custom AI endpoint is active in the mobile app.';
+    case 'local':
+    default:
+      return 'Local assistant is active in the mobile app.';
+  }
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Setting[]>([]);
   const [flags, setFlags] = useState<Flag[]>([]);
@@ -62,6 +119,11 @@ export default function SettingsPage() {
   const [settingValue, setSettingValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiProviderMode>('local');
+  const [aiModel, setAiModel] = useState('');
+  const [aiEndpoint, setAiEndpoint] = useState('');
+  const [aiSecret, setAiSecret] = useState('');
+  const [aiStatusLabel, setAiStatusLabel] = useState('');
 
   const pageSize = 10;
 
@@ -81,8 +143,147 @@ export default function SettingsPage() {
       .catch((err: Error) => setError(err.message));
   };
 
+  const resolveSettingRecord = async (key: string) => {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const localMatch = settings.find((item) => item.key === normalizedKey);
+    if (localMatch) {
+      return localMatch;
+    }
+
+    return fetchSettingByKey(normalizedKey);
+  };
+
+  const loadSettingValue = async (nextKey: string) => {
+    const normalizedKey = nextKey.trim();
+    setSettingKey(nextKey);
+    if (!normalizedKey) {
+      setSettingValue('');
+      return;
+    }
+
+    try {
+      const matchedSetting = await resolveSettingRecord(normalizedKey);
+      setSettingValue(matchedSetting?.value ?? '');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const loadAiRuntime = async () => {
+    try {
+      const [
+        providerSetting,
+        modelSetting,
+        endpointSetting,
+        secretSetting,
+        statusLabelSetting,
+      ] = await Promise.all([
+        fetchSettingByKey('ai_provider'),
+        fetchSettingByKey('ai_model'),
+        fetchSettingByKey('ai_endpoint'),
+        fetchSettingByKey('ai_secret'),
+        fetchSettingByKey('ai_status_label'),
+      ]);
+
+      const provider = normalizeAiProvider(providerSetting?.value);
+      setAiProvider(provider);
+      setAiModel(modelSetting?.value ?? '');
+      setAiEndpoint(endpointSetting?.value ?? '');
+      setAiSecret(secretSetting?.value ?? '');
+      setAiStatusLabel(
+        statusLabelSetting?.value?.trim() || defaultAiStatusLabel(provider),
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const saveSettingByKey = async (key: string, value: string) => {
+    const existing = await resolveSettingRecord(key);
+    await upsertSetting({
+      id: existing?.id,
+      key,
+      value,
+    });
+  };
+
+  const handleSaveAiRuntime = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const normalizedProvider = aiProvider;
+      await Promise.all([
+        saveSettingByKey('ai_provider', normalizedProvider),
+        saveSettingByKey('ai_model', aiModel.trim()),
+        saveSettingByKey('ai_endpoint', aiEndpoint.trim()),
+        saveSettingByKey('ai_secret', aiSecret.trim()),
+        saveSettingByKey(
+          'ai_status_label',
+          aiStatusLabel.trim() || defaultAiStatusLabel(normalizedProvider),
+        ),
+      ]);
+      await Promise.all([
+        refresh(settingsPage, flagsPage),
+        loadAiRuntime(),
+        loadSettingValue(settingKey),
+      ]);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectedAiProviderMeta =
+    aiProviderOptions.find((option) => option.value === aiProvider) ??
+    aiProviderOptions[0];
+
+  const providerRequiresSecret =
+    aiProvider === 'chatgpt' || aiProvider === 'custom';
+
+  const providerUsesEndpoint =
+    aiProvider === 'ollama' || aiProvider === 'chatgpt' || aiProvider === 'custom';
+
+  const providerUsesModel =
+    aiProvider === 'ollama' || aiProvider === 'chatgpt' || aiProvider === 'custom';
+
+  const endpointPlaceholder =
+    aiProvider === 'ollama'
+      ? 'http://127.0.0.1:11434'
+      : aiProvider === 'chatgpt'
+        ? 'https://api.openai.com/v1/responses'
+        : aiProvider === 'custom'
+          ? 'https://your-custom-endpoint.example.com'
+          : 'No endpoint needed for local assistant';
+
+  const modelPlaceholder =
+    aiProvider === 'ollama'
+      ? 'qwen2.5:1.5b-instruct'
+      : aiProvider === 'chatgpt'
+        ? 'gpt-4o-mini'
+        : aiProvider === 'custom'
+          ? 'your-custom-model'
+          : 'Built-in local mode';
+
+  useEffect(() => {
+    if (aiStatusLabel.trim().length === 0) {
+      setAiStatusLabel(defaultAiStatusLabel(aiProvider));
+      return;
+    }
+  }, [aiProvider, aiStatusLabel]);
+
   useEffect(() => {
     refresh(settingsPage, flagsPage);
+    void loadAiRuntime();
+  }, []);
+
+  useEffect(() => {
+    void loadSettingValue(settingKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSave = async () => {
@@ -91,17 +292,15 @@ export default function SettingsPage() {
       return;
     }
 
-    const existing = settings.find((item) => item.key === settingKey.trim());
     setBusy(true);
     setError(null);
     try {
-      await upsertSetting({
-        id: existing?.id,
-        key: settingKey.trim(),
-        value: settingValue,
-      });
-      setSettingValue('');
-      refresh(settingsPage, flagsPage);
+      await saveSettingByKey(settingKey.trim(), settingValue);
+      setSettingValue(settingValue);
+      await Promise.all([
+        refresh(settingsPage, flagsPage),
+        loadSettingValue(settingKey),
+      ]);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -140,9 +339,82 @@ export default function SettingsPage() {
       <Card>
         <div className={cardHeaderClass}>
           <div className={cardTitleGroupClass}>
+            <h2 className={cardTitleClass}>AI Runtime Control</h2>
+            <p className={cardSubtitleClass}>
+              Choose what the mobile app should run for AI requests. The app reflects this mode from admin config.
+            </p>
+          </div>
+        </div>
+        <div className={pillRowClass}>
+          {aiProviderOptions.map((option) => (
+            <Pill
+              key={option.value}
+              asButton
+              active={aiProvider === option.value}
+              onClick={() => setAiProvider(option.value)}
+            >
+              {option.label}
+            </Pill>
+          ))}
+        </div>
+        <p className="mt-3 text-sm leading-6 text-[#59716a]">
+          {selectedAiProviderMeta.description}
+        </p>
+        <div className={`${formRowClass} mt-4`}>
+          <FieldLabel label="AI mode">
+            <Input value={selectedAiProviderMeta.label} readOnly />
+          </FieldLabel>
+          <FieldLabel label="Model">
+            <Input
+              value={aiModel}
+              onChange={(e) => setAiModel(e.target.value)}
+              placeholder={modelPlaceholder}
+              disabled={!providerUsesModel}
+            />
+          </FieldLabel>
+          <FieldLabel label="Endpoint">
+            <Input
+              value={aiEndpoint}
+              onChange={(e) => setAiEndpoint(e.target.value)}
+              placeholder={endpointPlaceholder}
+              disabled={!providerUsesEndpoint}
+            />
+          </FieldLabel>
+          <FieldLabel label="Status label">
+            <Input
+              value={aiStatusLabel}
+              onChange={(e) => setAiStatusLabel(e.target.value)}
+              placeholder={defaultAiStatusLabel(aiProvider)}
+            />
+          </FieldLabel>
+          {providerRequiresSecret ? (
+            <FieldLabel label="Secret / API key">
+              <Input
+                type="password"
+                value={aiSecret}
+                onChange={(e) => setAiSecret(e.target.value)}
+                placeholder={
+                  aiProvider === 'chatgpt'
+                    ? 'OpenAI API key'
+                    : 'Bearer token or provider secret'
+                }
+              />
+            </FieldLabel>
+          ) : null}
+        </div>
+        <div className={formActionsClass}>
+          <Button disabled={busy} onClick={handleSaveAiRuntime}>
+            Apply AI Mode
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <div className={cardHeaderClass}>
+          <div className={cardTitleGroupClass}>
             <h2 className={cardTitleClass}>Save Setting</h2>
             <p className={cardSubtitleClass}>
-              AI provider, model, endpoint, reader defaults, and home copy can all be driven from here.
+              Advanced public settings for reader defaults, prompts, copy, and power-user configuration.
             </p>
           </div>
         </div>
@@ -151,7 +423,7 @@ export default function SettingsPage() {
         </div>
         <div className={pillRowClass}>
           {suggestedSettingKeys.map((item) => (
-            <Pill key={item} asButton active={settingKey === item} onClick={() => setSettingKey(item)}>
+            <Pill key={item} asButton active={settingKey === item} onClick={() => void loadSettingValue(item)}>
               {item}
             </Pill>
           ))}
@@ -162,6 +434,7 @@ export default function SettingsPage() {
               list="setting-key-suggestions"
               value={settingKey}
               onChange={(e) => setSettingKey(e.target.value)}
+              onBlur={() => void loadSettingValue(settingKey)}
               placeholder="app_title"
             />
             <datalist id="setting-key-suggestions">
