@@ -81,10 +81,10 @@ export default function OverviewPage() {
   return (
     <section className={pageStackClass}>
       <PageIntro
-        eyebrow="Admin Overview"
-        title={overview?.appName ?? 'Quran Admin'}
-        description="Monitor synced readers, content readiness, AI defaults, and the remote controls that shape the mobile app."
-        badge="Live control"
+        eyebrow="Quran Admin Overview"
+        title={overview?.appName ?? 'Quran Dual Page & Multi-Line Reader'}
+        description="Monitor Quran reader sync, page pack readiness, AI defaults, and the live controls shaping the app experience."
+        badge="Quran Control Center"
       />
 
       {error && <ErrorBanner>Failed to load: {error}</ErrorBanner>}

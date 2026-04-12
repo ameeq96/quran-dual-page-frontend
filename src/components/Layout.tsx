@@ -5,26 +5,26 @@ import { appBackgroundClass, cn } from './ui';
 
 const navSections = [
   {
-    title: 'Command',
+    title: 'Dashboard',
     items: [
-      { to: '/overview', label: 'Overview', hint: 'Health, sync, AI, and pipeline status' },
-      { to: '/users', label: 'Users', hint: 'Reader profiles, sync snapshots, and activity' },
-      { to: '/analytics', label: 'Analytics', hint: 'Reader engagement and usage summary' },
+      { to: '/overview', label: 'Overview', hint: 'Quran app health, sync status, and live controls' },
+      { to: '/users', label: 'Readers', hint: 'Reader accounts, sync snapshots, and activity' },
+      { to: '/analytics', label: 'Analytics', hint: 'Reader engagement and usage insights' },
     ],
   },
   {
     title: 'Content',
     items: [
-      { to: '/editions', label: 'Editions', hint: 'Control available line editions in app' },
-      { to: '/asset-packs', label: 'Asset Packs', hint: 'Upload, activate, and manage page images' },
-      { to: '/content-datasets', label: 'Content Datasets', hint: 'Remote indexes, insights, and JSON packs' },
+      { to: '/editions', label: 'Editions', hint: 'Manage available Quran line editions in the app' },
+      { to: '/asset-packs', label: 'Page Packs', hint: 'Upload, activate, and manage Quran page images' },
+      { to: '/content-datasets', label: 'Content Datasets', hint: 'Remote Quran indexes, insights, and JSON packs' },
     ],
   },
   {
-    title: 'Runtime',
+    title: 'Controls',
     items: [
-      { to: '/announcements', label: 'Announcements', hint: 'Push visible app messages and notices' },
-      { to: '/settings', label: 'Settings', hint: 'Defaults, AI config, and feature flags' },
+      { to: '/announcements', label: 'Announcements', hint: 'Publish in-app notices, updates, and messages' },
+      { to: '/settings', label: 'Settings', hint: 'Reader defaults, AI setup, and feature flags' },
     ],
   },
 ];
@@ -58,12 +58,12 @@ export default function Layout() {
                 QD
               </span>
               <div>
-                <strong className="block text-[1.05rem] font-semibold">Quran Admin</strong>
-                <small className="text-[#9fcabf]">Reader control hub</small>
+                <strong className="block text-[1.05rem] font-semibold">Quran Reader Admin</strong>
+                <small className="text-[#9fcabf]">Dual Page & Multi-Line control panel</small>
               </div>
             </div>
             <div className="text-[0.95rem] leading-[1.55] text-[#b7d4cc]">
-              Manage the mobile app from one place: assets, remote content, AI routing, sync, and app defaults.
+              Manage Quran pages, editions, remote content, AI behaviour, sync data, and reader defaults from one place.
             </div>
           </div>
           <div className="grid min-h-0 gap-[18px] overflow-visible xl:overflow-y-auto xl:pr-1.5">
@@ -110,8 +110,8 @@ export default function Layout() {
           </div>
           <div className="grid gap-3.5">
             <div className="grid gap-1.5 rounded-[18px] border border-white/10 bg-white/[0.04] px-4 py-3.5">
-              <span className="text-[0.75rem] uppercase tracking-[0.14em] text-[#9fcabf]">Control mode</span>
-              <strong>Remote-first mobile app</strong>
+              <span className="text-[0.75rem] uppercase tracking-[0.14em] text-[#9fcabf]">Platform Mode</span>
+              <strong>Quran reader live management</strong>
             </div>
             <button
               className="w-full rounded-[14px] border border-white/15 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-[#effaf7] transition hover:bg-white/[0.08]"
