@@ -16,7 +16,6 @@ const navSections = [
     title: 'Content',
     items: [
       { to: '/editions', label: 'Editions', hint: 'Manage available Quran line editions in the app' },
-      { to: '/asset-packs', label: 'Page Packs', hint: 'Upload, activate, and manage Quran page images' },
       { to: '/content-datasets', label: 'Content Datasets', hint: 'Remote Quran indexes, insights, and JSON packs' },
     ],
   },

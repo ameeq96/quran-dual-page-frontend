@@ -6,7 +6,6 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 const EditionsPage = lazy(() => import('./pages/EditionsPage'));
-const AssetPacksPage = lazy(() => import('./pages/AssetPacksPage'));
 const ContentDatasetsPage = lazy(() => import('./pages/ContentDatasetsPage'));
 const AnnouncementsPage = lazy(() => import('./pages/AnnouncementsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
@@ -34,7 +33,6 @@ export default function App() {
             <Route path="/overview" element={<OverviewPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/editions" element={<EditionsPage />} />
-            <Route path="/asset-packs" element={<AssetPacksPage />} />
             <Route path="/content-datasets" element={<ContentDatasetsPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

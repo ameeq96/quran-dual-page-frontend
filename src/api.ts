@@ -26,26 +26,6 @@ type PaginationInput = {
   pageSize?: number;
 };
 
-export type AssetPackPage = {
-  logicalPageNumber: number;
-  importedPageNumber: number;
-  fileName: string;
-  fileExtension: string;
-  relativePath: string;
-};
-
-export type AssetPackSummary = {
-  id: number;
-  edition: string;
-  version: string;
-  active: boolean;
-  storagePath?: string;
-  pageCount: number;
-  fileExtension: string;
-  sizeBytes: number;
-  availableImportedPages: number[];
-  pages?: AssetPackPage[];
-};
 
 const responseCache = new Map<string, CachedResponse>();
 const inflightRequests = new Map<string, Promise<unknown>>();
@@ -254,8 +234,6 @@ export function fetchOverview() {
     totalSessions: number;
     enabledEditions: number;
     totalEditions: number;
-    activeAssetPacks: number;
-    totalAssetPacks: number;
     activeDatasets: number;
     totalDatasets: number;
     activeAnnouncements: number;
@@ -280,8 +258,6 @@ export function fetchContentStatus() {
   return request<{
     editionsAvailable: string[];
     editions: { key: string; label: string; enabled: boolean }[];
-    assetsOnDevice: boolean;
-    assetPacks: { edition: string; version: string; pageCount: number }[];
     contentDatasets: { key: string; version: string }[];
     enabledFlags: string[];
     settings: { key: string; value: string }[];
@@ -433,47 +409,6 @@ export function fetchAnalytics() {
   );
 }
 
-export function fetchAssetPacks(pagination?: PaginationInput) {
-  return request<PaginatedResponse<AssetPackSummary>>(
-    withPagination('/asset-packs', pagination),
-  );
-}
-
-export function importMobileAppAssets(
-  sourcePath: string,
-  version: string,
-  editions?: string[],
-) {
-  return request<AssetPackSummary[]>('/asset-packs/import/mobile-assets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sourcePath, version, editions }),
-  });
-}
-
-export function fetchAssetPackPages(
-  edition: string,
-  version: string,
-  pagination?: PaginationInput,
-) {
-  return request<{
-    edition: string;
-    version: string;
-    active: boolean;
-    pageCount: number;
-    fileExtension: string;
-    sizeBytes: number;
-    availableImportedPages: number[];
-    pages: AssetPackPage[];
-    meta: PaginationMeta;
-  }>(
-    withPagination(
-      `/asset-packs/${edition}/${encodeURIComponent(version)}/pages`,
-      pagination,
-    ),
-  );
-}
-
 export function fetchContentDatasets(pagination?: PaginationInput) {
   return request<
     PaginatedResponse<{
@@ -487,79 +422,6 @@ export function fetchContentDatasets(pagination?: PaginationInput) {
   >(withPagination('/content-datasets', pagination));
 }
 
-export async function uploadAssetPack(edition: string, version: string, file: File) {
-  const form = new FormData();
-  form.append('file', file);
-  form.append('version', version);
-  return formMutation(
-    `/asset-packs/${edition}/upload`,
-    'POST',
-    form,
-    ['/asset-packs', '/admin/content', '/admin/overview', '/public/config'],
-  );
-}
-
-export async function uploadAssetPage(
-  edition: string,
-  version: string,
-  pageNumber: number,
-  file: File,
-) {
-  const form = new FormData();
-  form.append('file', file);
-  form.append('version', version);
-  form.append('pageNumber', String(pageNumber));
-  return formMutation(
-    `/asset-packs/${edition}/pages/upload`,
-    'POST',
-    form,
-    [`/asset-packs/${edition}/${encodeURIComponent(version)}/pages`, '/asset-packs', '/public/config'],
-  );
-}
-
-export function deleteAssetPage(edition: string, version: string, pageNumber: number) {
-  return mutate(
-    `/asset-packs/${edition}/${encodeURIComponent(version)}/pages/${pageNumber}`,
-    {
-      method: 'DELETE',
-    },
-    [`/asset-packs/${edition}/${encodeURIComponent(version)}/pages`, '/asset-packs', '/public/config'],
-  );
-}
-
-export async function updateAssetPage(
-  edition: string,
-  version: string,
-  pageNumber: number,
-  payload: { nextPageNumber?: number; file?: File | null },
-) {
-  const form = new FormData();
-  if (payload.nextPageNumber !== undefined) {
-    form.append('nextPageNumber', String(payload.nextPageNumber));
-  }
-  if (payload.file) {
-    form.append('file', payload.file);
-  }
-  return formMutation(
-    `/asset-packs/${edition}/${encodeURIComponent(version)}/pages/${pageNumber}`,
-    'PATCH',
-    form,
-    [`/asset-packs/${edition}/${encodeURIComponent(version)}/pages`, '/asset-packs', '/public/config'],
-  );
-}
-
-export async function activateAssetPack(edition: string, version: string) {
-  return jsonMutation(
-    `/asset-packs/${edition}/activate`,
-    'POST',
-    { version },
-    ['/asset-packs', '/admin/content', '/admin/overview', '/public/config'],
-  );
-}
-
-export function assetPreviewUrl(relativePath: string) {
-  return new URL(relativePath, `${API_URL}/`).toString();
-}
 
 export async function uploadContentDataset(key: string, version: string, file: File) {
   const form = new FormData();

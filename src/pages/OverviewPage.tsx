@@ -33,8 +33,6 @@ type Overview = {
   totalSessions: number;
   enabledEditions: number;
   totalEditions: number;
-  activeAssetPacks: number;
-  totalAssetPacks: number;
   activeDatasets: number;
   totalDatasets: number;
   activeAnnouncements: number;
@@ -55,8 +53,6 @@ type Overview = {
 type ContentStatus = {
   editionsAvailable: string[];
   editions: { key: string; label: string; enabled: boolean }[];
-  assetsOnDevice: boolean;
-  assetPacks: { edition: string; version: string; pageCount: number }[];
   contentDatasets: { key: string; version: string }[];
   enabledFlags: string[];
   settings: { key: string; value: string }[];
@@ -99,11 +95,6 @@ export default function OverviewPage() {
           label="Synced Users"
           value={overview?.syncedUsers ?? '-'}
           hint={overview?.lastSync ? `Last sync ${overview.lastSync}` : 'No recent sync'}
-        />
-        <MetricCard
-          label="Active Packs"
-          value={overview?.activeAssetPacks ?? '-'}
-          hint={overview ? `${overview.totalAssetPacks} total packs` : 'Waiting for data'}
         />
         <MetricCard
           label="Datasets Live"
@@ -197,16 +188,8 @@ export default function OverviewPage() {
             <strong className={metricValueClass}>{overview ? `${overview.enabledEditions}/${overview.totalEditions}` : '-'}</strong>
           </div>
           <div className={metricRowClass}>
-            <span className={metricLabelClass}>Active Packs</span>
-            <strong className={metricValueClass}>{overview ? `${overview.activeAssetPacks}/${overview.totalAssetPacks}` : '-'}</strong>
-          </div>
-          <div className={metricRowClass}>
             <span className={metricLabelClass}>Active Datasets</span>
             <strong className={metricValueClass}>{overview ? `${overview.activeDatasets}/${overview.totalDatasets}` : '-'}</strong>
-          </div>
-          <div className={metricRowClass}>
-            <span className={metricLabelClass}>Assets Ready</span>
-            <strong className={metricValueClass}>{content?.assetsOnDevice ? 'Yes' : 'No'}</strong>
           </div>
           <div className={metricRowClass}>
             <span className={metricLabelClass}>Active Synced Users</span>
@@ -233,32 +216,6 @@ export default function OverviewPage() {
             </div>
           ) : (
             <EmptyState>No enabled editions found.</EmptyState>
-          )}
-        </Card>
-
-        <Card>
-          <div className={cardHeaderClass}>
-            <div className={cardTitleGroupClass}>
-              <h2 className={cardTitleClass}>Active Asset Packs</h2>
-              <p className={cardSubtitleClass}>Remote image packs currently serving page requests.</p>
-            </div>
-          </div>
-          {(content?.assetPacks ?? []).length > 0 ? (
-            <ul className="grid gap-2.5">
-              {(content?.assetPacks ?? []).map((pack) => (
-                <li
-                  key={`${pack.edition}-${pack.version}`}
-                  className="flex flex-col gap-2 rounded-2xl border border-[rgba(15,42,39,0.08)] bg-white/70 px-4 py-3.5 md:flex-row md:items-center md:justify-between"
-                >
-                  <strong>{pack.edition}</strong>
-                  <span className="text-sm text-[#59716a]">
-                    v{pack.version} - {pack.pageCount} pages
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState>No active asset packs published yet.</EmptyState>
           )}
         </Card>
 
