@@ -24,7 +24,8 @@ Environment variables:
 HOST=0.0.0.0
 PORT=3000
 VITE_ADMIN_API_URL=https://quranadminapi.opplexify.com
-VITE_ADMIN_API_KEY=change-me
+VITE_ADMIN_API_KEY=public-admin-client
+VITE_RECAPTCHA_SITE_KEY=your-google-recaptcha-site-key
 ```
 
 Notes:
@@ -32,6 +33,7 @@ Notes:
 - `npm install` automatically runs `npm run build`
 - `npm start` serves the built `dist/` app through Node.js
 - React routes use SPA fallback through `server.js`
+- Login page supports Google reCAPTCHA when `VITE_RECAPTCHA_SITE_KEY` is configured
 
 ## Hostinger Deploy
 
