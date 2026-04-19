@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 const Layout = lazy(() => import('./components/Layout'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 const EditionsPage = lazy(() => import('./pages/EditionsPage'));
@@ -28,6 +29,7 @@ export default function App() {
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
           <Route element={<Layout />}>
             <Route path="/" element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<OverviewPage />} />

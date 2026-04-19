@@ -35,6 +35,7 @@ Notes:
 - React routes use SPA fallback through `server.js`
 - `public/.htaccess` is copied into `dist/` so direct routes like `/login` work on Hostinger Apache hosting too
 - Login page supports Google reCAPTCHA when `VITE_RECAPTCHA_SITE_KEY` is configured
+- Privacy Policy is published as a public React route at `/privacy-policy`
 
 ## Hostinger Deploy
 
