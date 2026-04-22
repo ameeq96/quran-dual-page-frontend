@@ -78,7 +78,7 @@ export default function OverviewPage() {
     <section className={pageStackClass}>
       <PageIntro
         eyebrow="Quran Admin Overview"
-        title={overview?.appName ?? 'Quran Dual Page & Multi-Line Reader'}
+        title={overview?.appName ?? 'Quran Pak Dual Page Reader'}
         description="Monitor Quran reader sync, page pack readiness, AI defaults, and the live controls shaping the app experience."
         badge="Quran Control Center"
       />

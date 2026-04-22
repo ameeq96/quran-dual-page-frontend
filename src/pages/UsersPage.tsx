@@ -94,6 +94,17 @@ type NoteEntry = {
   note: string;
 };
 
+type DetailRow = {
+  label: string;
+  value: string;
+};
+
+type DetailSection = {
+  key: string;
+  title: string;
+  rows: DetailRow[];
+};
+
 type DetailTabKey =
   | 'summary'
   | 'bookmarks'
@@ -206,6 +217,139 @@ function formatIso(value: string | null | undefined): string {
   return value;
 }
 
+function humanizeStorageValue(value: unknown, fallback = '-'): string {
+  const raw = toText(value).trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  return raw
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatBoolean(value: unknown, trueLabel = 'On', falseLabel = 'Off'): string {
+  if (value === true) {
+    return trueLabel;
+  }
+  if (value === false) {
+    return falseLabel;
+  }
+  return '-';
+}
+
+function formatMillis(value: unknown): string {
+  const millis = toNumber(value);
+  if (millis === null || millis <= 0) {
+    return '00:00';
+  }
+  const totalSeconds = Math.floor(millis / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function buildSummarySections(sync: UserSyncDetail | null): DetailSection[] {
+  if (!sync) {
+    return [];
+  }
+
+  const payload = sync.payload ?? {};
+  const settings = toRecord(payload.settings);
+  const aiSettings = toRecord(payload.aiSettings);
+  const readingPlan = toRecord(payload.readingPlan);
+  const experienceSettings = toRecord(payload.experienceSettings);
+  const dailyProgress = toRecord(payload.dailyProgressState);
+  const readingStreak = toRecord(payload.readingStreak);
+  const audio = toRecord(payload.audio);
+
+  return [
+    {
+      key: 'meta',
+      title: 'Snapshot',
+      rows: [
+        { label: 'Email', value: sync.email ?? '-' },
+        { label: 'Device ID', value: sync.deviceId ?? '-' },
+        { label: 'App Version', value: sync.appVersion ?? '-' },
+        { label: 'Status', value: sync.active ? 'Active' : 'Disabled' },
+        { label: 'Last Page', value: String(sync.lastPageNumber ?? '-') },
+        { label: 'Updated', value: formatIso(sync.syncUpdatedAt) },
+        { label: 'Payload Updated', value: formatIso(toText(payload.updatedAtIso)) },
+      ],
+    },
+    {
+      key: 'reader',
+      title: 'Reader Settings',
+      rows: [
+        { label: 'Edition', value: humanizeStorageValue(settings.mushafEdition) },
+        { label: 'Fullscreen', value: formatBoolean(settings.fullscreenReading) },
+        { label: 'Page Numbers', value: formatBoolean(settings.showPageNumbers, 'Shown', 'Hidden') },
+        { label: 'Image Mode', value: formatBoolean(settings.preferImageMode, 'Preferred', 'Disabled') },
+        { label: 'Night Mode', value: formatBoolean(settings.nightMode) },
+        { label: 'Low Memory', value: formatBoolean(settings.lowMemoryMode) },
+        { label: 'Hifz Focus', value: formatBoolean(settings.hifzFocusMode) },
+        { label: 'Page Preset', value: humanizeStorageValue(settings.pagePreset) },
+      ],
+    },
+    {
+      key: 'ai',
+      title: 'AI State',
+      rows: [
+        { label: 'Language', value: humanizeStorageValue(aiSettings.responseLanguage) },
+        { label: 'Depth', value: humanizeStorageValue(aiSettings.responseDepth) },
+      ],
+    },
+    {
+      key: 'plan',
+      title: 'Reading Plan',
+      rows: [
+        { label: 'Preset', value: humanizeStorageValue(readingPlan.preset) },
+        { label: 'Target Days', value: String(toNumber(readingPlan.targetDays) ?? '-') },
+        { label: 'Pages / Day', value: String(toNumber(readingPlan.customPagesPerDay) ?? '-') },
+        { label: 'Created', value: formatIso(toText(readingPlan.createdAtIso)) },
+      ],
+    },
+    {
+      key: 'experience',
+      title: 'Experience',
+      rows: [
+        { label: 'Sync Mode', value: humanizeStorageValue(experienceSettings.syncMode) },
+        { label: 'Larger Text', value: formatBoolean(experienceSettings.largerTextMode) },
+        { label: 'High Contrast', value: formatBoolean(experienceSettings.highContrastMode) },
+        { label: 'Reduced Motion', value: formatBoolean(experienceSettings.reducedMotion) },
+        { label: 'Tajweed Mode', value: formatBoolean(experienceSettings.tajweedMode) },
+        { label: 'Recitation Sync', value: formatBoolean(experienceSettings.recitationSyncEnabled) },
+      ],
+    },
+    {
+      key: 'progress',
+      title: 'Progress',
+      rows: [
+        { label: 'Daily Target', value: String(toNumber(payload.dailyTargetPages) ?? '-') },
+        { label: 'Progress Date', value: toText(dailyProgress.dateKey, '-') || '-' },
+        { label: 'Progress Start', value: String(toNumber(dailyProgress.startPage) ?? '-') },
+        { label: 'Streak Count', value: String(toNumber(readingStreak.count) ?? 0) },
+        { label: 'Streak Date', value: toText(readingStreak.lastDateKey, '-') || '-' },
+      ],
+    },
+    {
+      key: 'audio',
+      title: 'Audio',
+      rows: [
+        { label: 'Surah ID', value: String(toNumber(audio.chapterId) ?? '-') },
+        { label: 'Surah', value: toText(audio.chapterName, '-') || '-' },
+        { label: 'Reciter ID', value: String(toNumber(audio.reciterId) ?? '-') },
+        { label: 'Reciter', value: toText(audio.reciterName, '-') || '-' },
+        { label: 'Resume', value: formatMillis(audio.positionMillis) },
+        { label: 'Repeat', value: formatBoolean(audio.repeatEnabled) },
+      ],
+    },
+  ];
+}
+
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
@@ -273,6 +417,11 @@ export default function UsersPage() {
       hifz: normalizeHifz(payload),
     };
   }, [selectedSync]);
+
+  const summarySections = useMemo(
+    () => buildSummarySections(selectedSync),
+    [selectedSync],
+  );
 
   const filteredBookmarks = useMemo(
     () =>
@@ -472,27 +621,23 @@ export default function UsersPage() {
           )}
 
           {selectedTab === 'summary' && (
-            <div className={detailStackClass}>
-              <div className={metricRowClass}>
-                <span className={metricLabelClass}>Email</span>
-                <strong className={metricValueClass}>{selectedSync.email ?? '-'}</strong>
-              </div>
-              <div className={metricRowClass}>
-                <span className={metricLabelClass}>Device ID</span>
-                <strong className={metricValueClass}>{selectedSync.deviceId ?? '-'}</strong>
-              </div>
-              <div className={metricRowClass}>
-                <span className={metricLabelClass}>App Version</span>
-                <strong className={metricValueClass}>{selectedSync.appVersion ?? '-'}</strong>
-              </div>
-              <div className={metricRowClass}>
-                <span className={metricLabelClass}>Status</span>
-                <strong className={metricValueClass}>{selectedSync.active ? 'Active' : 'Disabled'}</strong>
-              </div>
-              <div className={metricRowClass}>
-                <span className={metricLabelClass}>Last Synced Page</span>
-                <strong className={metricValueClass}>{selectedSync.lastPageNumber ?? '-'}</strong>
-              </div>
+            <div className={detailGridClass}>
+              {summarySections.map((section) => (
+                <div
+                  key={section.key}
+                  className="grid gap-2 rounded-[22px] border border-[rgba(15,42,39,0.08)] bg-white/70 p-4"
+                >
+                  <h3 className="m-0 text-sm font-bold uppercase tracking-[0.12em] text-[#0f3d32]">
+                    {section.title}
+                  </h3>
+                  {section.rows.map((row) => (
+                    <div key={`${section.key}-${row.label}`} className={metricRowClass}>
+                      <span className={metricLabelClass}>{row.label}</span>
+                      <strong className={metricValueClass}>{row.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           )}
 
