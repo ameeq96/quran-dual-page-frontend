@@ -1,6 +1,8 @@
 .DS_Store
 node_modules/
 dist/
+server-dist/
+storage/
 .env
 .env.local
 .env.*.local

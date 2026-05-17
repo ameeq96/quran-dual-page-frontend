@@ -1,6 +1,6 @@
 import { clearAdminToken, getAdminToken, notifyUnauthorized } from './auth';
 
-const API_URL = import.meta.env.VITE_ADMIN_API_URL || 'http://localhost:5052';
+const API_URL = (import.meta.env.VITE_ADMIN_API_URL || '/api').replace(/\/$/, '');
 const GET_CACHE_TTL_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 12_000;
 

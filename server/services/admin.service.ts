@@ -1,0 +1,275 @@
+import { Repository } from "typeorm";
+import { Announcement } from "../entities/announcement.entity.js";
+import { AppSetting } from "../entities/app-setting.entity.js";
+import { AppUser } from "../entities/app-user.entity.js";
+import { ContentDataset } from "../entities/content-dataset.entity.js";
+import { Edition } from "../entities/edition.entity.js";
+import { FeatureFlag } from "../entities/feature-flag.entity.js";
+import { AssetPacksService } from "./asset-packs.service.js";
+import { MemoryCacheService } from "./memory-cache.js";
+
+export class AdminService {
+  constructor(
+    private readonly usersRepo: Repository<AppUser>,
+    private readonly editionsRepo: Repository<Edition>,
+    private readonly contentDatasetsRepo: Repository<ContentDataset>,
+    private readonly announcementsRepo: Repository<Announcement>,
+    private readonly settingsRepo: Repository<AppSetting>,
+    private readonly flagsRepo: Repository<FeatureFlag>,
+    private readonly assetPacksService: AssetPacksService,
+    private readonly cache: MemoryCacheService,
+  ) {}
+
+  async getOverview() {
+    return this.cache.getOrSet("admin:overview", 10_000, async () => {
+      const [
+        totalUsers,
+        activeUsers,
+        syncSummary,
+        totalEditions,
+        enabledEditions,
+        totalDatasets,
+        activeDatasets,
+        activeAssetPacks,
+        totalAnnouncements,
+        activeAnnouncements,
+        totalFlags,
+        enabledFlags,
+        settingsCount,
+        latestAnnouncement,
+        defaultEdition,
+        aiLanguage,
+        aiDepth,
+        aiProvider,
+        aiModel,
+        aiStatusLabel,
+        appTitle,
+      ] = await Promise.all([
+        this.usersRepo.count(),
+        this.usersRepo.count({ where: { active: true } }),
+        this._buildSyncSummary(),
+        this.editionsRepo.count(),
+        this.editionsRepo.count({ where: { enabled: true } }),
+        this.contentDatasetsRepo.count(),
+        this.contentDatasetsRepo.count({ where: { active: true } }),
+        this.assetPacksService.activePacks(),
+        this.announcementsRepo.count(),
+        this.announcementsRepo.count({ where: { active: true } }),
+        this.flagsRepo.count(),
+        this.flagsRepo.count({ where: { enabled: true } }),
+        this.settingsRepo.count(),
+        this.announcementsRepo.find({
+          order: { id: "DESC" },
+          take: 1,
+        }),
+        this.settingsRepo.findOne({ where: { key: "default_mushaf_edition" } }),
+        this.settingsRepo.findOne({ where: { key: "ai_default_language" } }),
+        this.settingsRepo.findOne({ where: { key: "ai_default_depth" } }),
+        this.settingsRepo.findOne({ where: { key: "ai_provider" } }),
+        this.settingsRepo.findOne({ where: { key: "ai_model" } }),
+        this.settingsRepo.findOne({ where: { key: "ai_status_label" } }),
+        this.settingsRepo.findOne({ where: { key: "app_title" } }),
+      ]);
+
+      return {
+        appName:
+          appTitle?.value ||
+          process.env.APP_NAME ||
+          "Quran Pak Dual Page Reader",
+        activeUsers,
+        totalUsers,
+        syncedUsers: syncSummary.syncedUsers,
+        activeSyncedUsers: syncSummary.activeSyncedUsers,
+        totalNotes: syncSummary.totalNotes,
+        totalFavoritePages: syncSummary.totalFavoritePages,
+        totalBookmarks: syncSummary.totalBookmarks,
+        totalHistoryEntries: syncSummary.totalHistoryEntries,
+        totalHifzEntries: syncSummary.totalHifzEntries,
+        totalSessions: 0,
+        enabledEditions,
+        totalEditions,
+        activeAssetPacks: activeAssetPacks.length,
+        totalAssetPacks: activeAssetPacks.length,
+        activeDatasets,
+        totalDatasets,
+        activeAnnouncements,
+        totalAnnouncements,
+        enabledFlags,
+        totalFlags,
+        settingsCount,
+        defaultEdition: defaultEdition?.value ?? "16_lines",
+        aiLanguage: aiLanguage?.value ?? "english",
+        aiDepth: aiDepth?.value ?? "fast",
+        aiProvider: this._formatAiProviderLabel(aiProvider?.value),
+        aiModel: aiModel?.value ?? "built-in local mode",
+        aiStatusLabel: aiStatusLabel?.value ?? "Local AI mode in app",
+        lastAnnouncementTitle: latestAnnouncement?.[0]?.title ?? null,
+        lastSync: syncSummary.latestSyncAt?.toISOString() ?? null,
+      };
+    });
+  }
+
+  async getContentStatus() {
+    return this.cache.getOrSet("admin:content-status", 10_000, async () => {
+      const [
+        editions,
+        activeAssetPacks,
+        zipAssetPacks,
+        contentDatasets,
+        flags,
+        settings,
+        announcements,
+      ] = await Promise.all([
+        this.editionsRepo.find({ order: { id: "ASC" } }),
+        this.assetPacksService.activePacks(),
+        this.assetPacksService.zipCatalog(),
+        this.contentDatasetsRepo.find({
+          where: { active: true },
+          order: { key: "ASC" },
+        }),
+        this.flagsRepo.find({
+          where: { enabled: true },
+          order: { key: "ASC" },
+        }),
+        this.settingsRepo.find({ order: { key: "ASC" } }),
+        this.announcementsRepo.find({
+          where: { active: true },
+          order: { id: "DESC" },
+        }),
+      ]);
+
+      return {
+        editionsAvailable: editions
+          .filter((item) => item.enabled)
+          .map((item) => item.key),
+        editions,
+        assetsOnDevice: false,
+        assetPacks: activeAssetPacks.map((pack) => ({
+          edition: pack.edition,
+          version: pack.version,
+          pageCount: pack.pageCount,
+          fileExtension: pack.fileExtension,
+          sizeBytes: pack.sizeBytes,
+          publicPath: pack.publicPath,
+        })),
+        zipAssetPacks: zipAssetPacks.map((pack) => ({
+          key: pack.key,
+          edition: pack.edition,
+          fileName: pack.fileName,
+          sizeBytes: pack.sizeBytes,
+          publicPath: pack.publicPath,
+          modifiedAt: pack.modifiedAt,
+        })),
+        contentDatasets: contentDatasets.map((item) => ({
+          key: item.key,
+          version: item.version,
+        })),
+        enabledFlags: flags.map((item) => item.key),
+        settings: settings.map((item) => ({
+          key: item.key,
+          value: item.value,
+        })),
+        announcements: announcements.map((item) => ({
+          id: item.id,
+          title: item.title,
+          body: item.body,
+        })),
+        lastIndexBuild: null,
+      };
+    });
+  }
+
+  private async _buildSyncSummary() {
+    const users = await this.usersRepo.find({
+      select: {
+        active: true,
+        syncPayloadJson: true,
+        syncUpdatedAt: true,
+      },
+    });
+
+    let syncedUsers = 0;
+    let activeSyncedUsers = 0;
+    let totalNotes = 0;
+    let totalFavoritePages = 0;
+    let totalBookmarks = 0;
+    let totalHistoryEntries = 0;
+    let totalHifzEntries = 0;
+    let latestSyncAt: Date | null = null;
+
+    for (const user of users) {
+      const payload = this._parsePayload(user.syncPayloadJson);
+      if (Object.keys(payload).length === 0) {
+        continue;
+      }
+
+      syncedUsers += 1;
+      if (user.active) {
+        activeSyncedUsers += 1;
+      }
+
+      totalNotes += Object.keys(this._safeRecord(payload.pageNotes)).length;
+      totalFavoritePages += this._safeArray(payload.favoritePages).length;
+      totalBookmarks += this._safeArray(payload.bookmarks).length;
+      totalHistoryEntries += this._safeArray(payload.readingHistory).length;
+      totalHifzEntries += this._safeArray(payload.hifzReviewEntries).length;
+
+      if (
+        user.syncUpdatedAt &&
+        (latestSyncAt == null || user.syncUpdatedAt > latestSyncAt)
+      ) {
+        latestSyncAt = user.syncUpdatedAt;
+      }
+    }
+
+    return {
+      syncedUsers,
+      activeSyncedUsers,
+      totalNotes,
+      totalFavoritePages,
+      totalBookmarks,
+      totalHistoryEntries,
+      totalHifzEntries,
+      latestSyncAt,
+    };
+  }
+
+  private _parsePayload(jsonPayload: string | null) {
+    if (!jsonPayload || !jsonPayload.trim()) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(jsonPayload) as Record<string, unknown>;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  private _safeArray(value: unknown): unknown[] {
+    return Array.isArray(value) ? value : [];
+  }
+
+  private _safeRecord(value: unknown): Record<string, unknown> {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  }
+
+  private _formatAiProviderLabel(value?: string | null) {
+    switch ((value ?? "").trim().toLowerCase()) {
+      case "ollama":
+        return "Ollama";
+      case "openai":
+      case "chatgpt":
+        return "ChatGPT";
+      case "custom":
+        return "Custom AI";
+      case "local":
+      case "":
+      default:
+        return "Local assistant";
+    }
+  }
+}
