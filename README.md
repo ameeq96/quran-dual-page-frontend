@@ -1,6 +1,6 @@
-# Quran Admin Single-Domain App
+# Admin Frontend (React)
 
-React admin UI plus Express API for the Quran app. One Node.js app serves the dashboard, admin API, public/mobile API, and persistent content assets from `https://quranadmin.opplexify.com`.
+Minimal dashboard UI for the Quran app admin API.
 
 ## Setup
 
@@ -9,51 +9,30 @@ React admin UI plus Express API for the Quran app. One Node.js app serves the da
 ```
 npm install
 ```
-3. Run the React dev server:
+3. Run dev server:
 ```
 npm run dev
 ```
 
-For production-style local testing, fill DB/JWT values, run `npm run build`, then `npm start`.
-
 ## Production
 
-This app is prepared for Hostinger shared `Node.js` hosting on `quranadmin.opplexify.com`.
+This frontend is prepared for Hostinger shared `Node.js` hosting.
 
 Environment variables:
 
 ```env
 HOST=0.0.0.0
 PORT=3000
-NODE_ENV=production
-APP_URL=https://quranadmin.opplexify.com
-APP_NAME=Quran Dual Page & Multi-Line Reader
-STORAGE_ROOT=/home/your-user/quran-admin-storage
-
-DB_HOST=your-db-host
-DB_PORT=3306
-DB_USER=your-db-user
-DB_PASS=your-db-password
-DB_NAME=your-db-name
-DB_SYNCHRONIZE=true
-DB_LOGGING=false
-
-JWT_SECRET=your-strong-secret
-JWT_EXPIRES_IN=7d
-ADMIN_SEED_EMAIL=admin@opplexify.com
-ADMIN_SEED_PASSWORD=ChangeMe123!
-
-VITE_ADMIN_API_URL=/api
+VITE_ADMIN_API_URL=https://quranadminapi.opplexify.com
+VITE_ADMIN_API_KEY=public-admin-client
 VITE_RECAPTCHA_SITE_KEY=your-google-recaptcha-site-key
 ```
 
 Notes:
 
-- `npm install` automatically runs `npm run build`.
-- `npm start` runs one Express server for React, `/api/*`, `/public/*`, `/health`, and `/assets/*`.
-- React admin API calls use same-origin `/api` by default.
-- Public/mobile clients should use `https://quranadmin.opplexify.com/public/config` and related `/public/*` endpoints.
-- Persistent files in `STORAGE_ROOT` are served from `/assets`.
+- `npm install` automatically runs `npm run build`
+- `npm start` serves the built `dist/` app through Node.js
+- React routes use SPA fallback through `server.js`
 - `public/.htaccess` is copied into `dist/` so direct routes like `/login` work on Hostinger Apache hosting too
 - Login page supports Google reCAPTCHA when `VITE_RECAPTCHA_SITE_KEY` is configured
 - Privacy Policy is published as a public React route at `/privacy-policy`
@@ -61,7 +40,7 @@ Notes:
 ## Hostinger Deploy
 
 1. Create a `Node.js` website in Hostinger hPanel.
-2. Attach `quranadmin.opplexify.com` to that app.
+2. Attach your frontend domain to that app.
 3. Upload this repo so `package.json` is in the app root.
 4. Set install command to:
 ```bash
@@ -72,12 +51,4 @@ npm install
 npm start
 ```
 6. Add the production environment variables above.
-7. Create the MySQL database in Hostinger and use those credentials in the env vars.
-8. Set `STORAGE_ROOT` to a folder outside the deploy directory so uploaded datasets and asset packs survive redeploys.
-9. Restart the app from hPanel.
-
-After deployment, test:
-
-- `https://quranadmin.opplexify.com/health`
-- `https://quranadmin.opplexify.com/api/auth/login`
-- `https://quranadmin.opplexify.com/public/config`
+7. Restart the app from hPanel.
