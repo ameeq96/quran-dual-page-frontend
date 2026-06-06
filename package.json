@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "vite build && npm run build:server && node -e \"const fs=require('fs');fs.copyFileSync('public/.htaccess','dist/.htaccess');\"",
     "build:server": "tsc -p tsconfig.server.json",
+    "db:migrate": "npm run build:server && node server-dist/scripts/db-migrate.js",
+    "db:seed": "npm run build:server && node server-dist/scripts/db-seed.js",
+    "db:setup": "npm run build:server && node server-dist/scripts/db-setup.js",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "start": "node server.js",
     "postinstall": "npm run build"
