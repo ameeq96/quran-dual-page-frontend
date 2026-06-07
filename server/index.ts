@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './env.js';
 import 'reflect-metadata';
 import express, {
   type ErrorRequestHandler,

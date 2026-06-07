@@ -1,3 +1,4 @@
+import './env.js';
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import {

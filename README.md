@@ -14,6 +14,15 @@ npm install
 npm run dev
 ```
 
+For local login/API testing, run the backend and frontend in two terminals:
+```
+npm run dev:api
+npm run dev:web
+```
+
+Vite proxies `/api`, `/public`, `/assets`, and `/health` to the backend port
+from `PORT` in `.env`. Set `VITE_API_PROXY_TARGET` if the backend runs elsewhere.
+
 For production-style local testing, fill DB/JWT values, run `npm run build`, then `npm start`.
 
 ## Production

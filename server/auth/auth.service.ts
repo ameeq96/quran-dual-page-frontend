@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { Repository } from 'typeorm';
 import { AdminUser } from '../entities/admin_user.entity.js';

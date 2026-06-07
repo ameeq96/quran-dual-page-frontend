@@ -214,6 +214,9 @@ export function login(email: string, password: string) {
     const rawBody = await res.text();
 
     if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error('Login API not found. Start the backend server and check the dev proxy.');
+      }
       throw new Error(`Login failed: ${res.status}`);
     }
 
