@@ -10,12 +10,20 @@ export type AdminJwtPayload = {
   role: string;
 };
 
+function isBcryptHash(value: string | null | undefined) {
+  return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(value ?? '');
+}
+
 export class AuthService {
   constructor(private readonly adminRepo: Repository<AdminUser>) {}
 
   async login(email: string, password: string) {
     const admin = await this.adminRepo.findOne({ where: { email } });
     if (!admin) {
+      throw new HttpError(401, 'Invalid credentials');
+    }
+
+    if (!isBcryptHash(admin.passwordHash)) {
       throw new HttpError(401, 'Invalid credentials');
     }
 

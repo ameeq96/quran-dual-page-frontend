@@ -42,6 +42,7 @@ JWT_SECRET=your-strong-secret
 JWT_EXPIRES_IN=7d
 ADMIN_SEED_EMAIL=admin@opplexify.com
 ADMIN_SEED_PASSWORD=ChangeMe123!
+ADMIN_SEED_RESET=false
 
 VITE_ADMIN_API_URL=/api
 VITE_RECAPTCHA_SITE_KEY=your-google-recaptcha-site-key
@@ -58,6 +59,8 @@ Notes:
 - Login page supports classic Google reCAPTCHA v2 checkbox when
   `VITE_RECAPTCHA_SITE_KEY` is configured. Use the site key, not the secret key,
   and allow the deployed admin domain in the reCAPTCHA console.
+- To recover the seeded admin password, temporarily set `ADMIN_SEED_RESET=true`,
+  restart the app once, then set it back to `false`.
 - Privacy Policy is published as a public React route at `/privacy-policy`
 
 ## Hostinger Deploy

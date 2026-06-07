@@ -51,9 +51,14 @@ const DEFAULT_EDITIONS: Array<{ key: string; label: string }> = [
   { key: 'kanzul_iman', label: 'Kanzul Iman' },
 ];
 
+function isBcryptHash(value: string | null | undefined) {
+  return /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(value ?? '');
+}
+
 export async function seedDefaults(dataSource: DataSource) {
   const email = process.env.ADMIN_SEED_EMAIL;
   const password = process.env.ADMIN_SEED_PASSWORD;
+  const shouldResetSeedAdmin = process.env.ADMIN_SEED_RESET === 'true';
   const adminRepo = dataSource.getRepository(AdminUser);
   const settingsRepo = dataSource.getRepository(AppSetting);
   const flagsRepo = dataSource.getRepository(FeatureFlag);
@@ -71,6 +76,10 @@ export async function seedDefaults(dataSource: DataSource) {
           active: true,
         }),
       );
+    } else if (shouldResetSeedAdmin || !isBcryptHash(existing.passwordHash)) {
+      existing.passwordHash = await bcrypt.hash(password, 10);
+      existing.active = true;
+      await adminRepo.save(existing);
     }
   }
 
