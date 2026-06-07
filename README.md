@@ -81,3 +81,37 @@ After deployment, test:
 - `https://quranadmin.opplexify.com/health`
 - `https://quranadmin.opplexify.com/api/auth/login`
 - `https://quranadmin.opplexify.com/public/config`
+
+## Plesk Deploy
+
+Use Plesk's Node.js app settings for this project. Do not point the domain's public
+document root at the repository root, because that exposes source files and serves
+the development `index.html`.
+
+Recommended Plesk settings:
+
+- Application root: the folder containing `package.json`
+- Document root: `dist`
+- Application startup file: `server.js`
+- Install command: `npm install`
+- Startup command: `npm start`
+
+Set production environment variables in Plesk, including real MySQL credentials and
+a writable absolute `STORAGE_ROOT`, for example:
+
+```env
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=3000
+APP_URL=https://quran.opplexify.com
+STORAGE_ROOT=/home/<plesk-user>/quran-admin-storage
+```
+
+Replace `<plesk-user>` with the real account name. Leaving the placeholder value
+from `.env.example` will prevent Passenger from starting the Node app.
+
+After deployment, test:
+
+- `https://quran.opplexify.com/health`
+- `https://quran.opplexify.com/api/auth/login`
+- `https://quran.opplexify.com/public/config`
