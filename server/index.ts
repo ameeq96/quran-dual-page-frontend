@@ -28,7 +28,7 @@ import {
 } from './entities/index.js';
 import { HttpError, isHttpError } from './errors.js';
 import { EditionsService } from './editions/editions.service.js';
-import { ensureStorageDirectory, storageRoot } from './common/storage-paths.js';
+import { ensureStorageDirectory, ensureStorageRoot, storageRoot } from './common/storage-paths.js';
 import { MemoryCacheService } from './common/cache/memory-cache.service.js';
 import { PublicAiService } from './public/public_ai.service.js';
 import { PublicSearchService } from './public/public_search.service.js';
@@ -37,6 +37,11 @@ import { SettingsService } from './settings/settings.service.js';
 import { UsersService } from './users/users.service.js';
 
 type AsyncRoute = (req: Request, res: Response) => Promise<unknown> | unknown;
+type StartupState = {
+  status: 'starting' | 'ok' | 'error';
+  error?: string;
+  updatedAt: string;
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,43 +79,33 @@ function isDatabaseMissingConfiguration(error: unknown) {
   );
 }
 
-async function bootstrap() {
-  await AppDataSource.initialize();
-  await seedDefaults(AppDataSource);
+function describeError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
 
-  const cache = new MemoryCacheService();
-  const assetPacksService = new AssetPacksService(cache);
-  const authService = new AuthService(AppDataSource.getRepository(AdminUser));
-  const adminService = new AdminService(
-    AppDataSource.getRepository(AppUser),
-    AppDataSource.getRepository(Edition),
-    AppDataSource.getRepository(ContentDataset),
-    AppDataSource.getRepository(Announcement),
-    AppDataSource.getRepository(AppSetting),
-    AppDataSource.getRepository(FeatureFlag),
-    assetPacksService,
-    cache,
-  );
-  const usersService = new UsersService(AppDataSource.getRepository(AppUser), cache);
-  const editionsService = new EditionsService(AppDataSource.getRepository(Edition), cache);
-  const announcementsService = new AnnouncementsService(
-    AppDataSource.getRepository(Announcement),
-    cache,
-  );
-  const settingsService = new SettingsService(
-    AppDataSource.getRepository(AppSetting),
-    AppDataSource.getRepository(FeatureFlag),
-    cache,
-  );
-  const contentDatasetsService = new ContentDatasetsService(
-    AppDataSource.getRepository(ContentDataset),
-    cache,
-  );
-  const publicAiService = new PublicAiService(AppDataSource.getRepository(AppSetting), cache);
-  const publicSearchService = new PublicSearchService(
-    AppDataSource.getRepository(ContentDataset),
-    cache,
-  );
+function unavailableHandler(startupState: StartupState, serviceName: string): RequestHandler {
+  return (_req, res) => {
+    res.status(503).json({
+      message: `${serviceName} is not available yet`,
+      status: startupState.status,
+      error: startupState.error,
+      timestamp: new Date().toISOString(),
+    });
+  };
+}
+
+function registerReactFallback(app: express.Express) {
+  app.use(express.static(distPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+async function bootstrap() {
+  const startupState: StartupState = {
+    status: 'starting',
+    updatedAt: new Date().toISOString(),
+  };
 
   const app = express();
   app.set('trust proxy', true);
@@ -126,30 +121,83 @@ async function bootstrap() {
     next();
   });
 
-  app.use(
-    '/assets',
-    express.static(storageRoot, {
-      cacheControl: true,
-      etag: true,
-      fallthrough: false,
-      immutable: true,
-      index: false,
-      lastModified: true,
-      maxAge: '365d',
-    }),
-  );
-
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   app.get('/health', (_req, res) => {
-    res.json({
-      status: 'ok',
+    res.status(startupState.status === 'error' ? 503 : 200).json({
+      status: startupState.status === 'ok' ? 'ok' : startupState.status,
       app: process.env.APP_NAME || 'quran-admin-backend',
       env: process.env.NODE_ENV || 'development',
+      database: AppDataSource.isInitialized ? 'connected' : 'not-connected',
+      storageRoot,
+      error: startupState.error,
+      updatedAt: startupState.updatedAt,
       timestamp: new Date().toISOString(),
     });
   });
+
+  app.listen(port, host, () => {
+    console.log(`Quran admin app listening on ${host}:${port}`);
+    console.log(`Serving React app from ${distPath}`);
+    console.log(`Configured persistent assets root: ${storageRoot}`);
+  });
+
+  let assetsRegistered = false;
+
+  try {
+    ensureStorageRoot();
+
+    app.use(
+      '/assets',
+      express.static(storageRoot, {
+        cacheControl: true,
+        etag: true,
+        fallthrough: false,
+        immutable: true,
+        index: false,
+        lastModified: true,
+        maxAge: '365d',
+      }),
+    );
+    assetsRegistered = true;
+
+    await AppDataSource.initialize();
+    await seedDefaults(AppDataSource);
+
+    const cache = new MemoryCacheService();
+    const assetPacksService = new AssetPacksService(cache);
+    const authService = new AuthService(AppDataSource.getRepository(AdminUser));
+    const adminService = new AdminService(
+      AppDataSource.getRepository(AppUser),
+      AppDataSource.getRepository(Edition),
+      AppDataSource.getRepository(ContentDataset),
+      AppDataSource.getRepository(Announcement),
+      AppDataSource.getRepository(AppSetting),
+      AppDataSource.getRepository(FeatureFlag),
+      assetPacksService,
+      cache,
+    );
+    const usersService = new UsersService(AppDataSource.getRepository(AppUser), cache);
+    const editionsService = new EditionsService(AppDataSource.getRepository(Edition), cache);
+    const announcementsService = new AnnouncementsService(
+      AppDataSource.getRepository(Announcement),
+      cache,
+    );
+    const settingsService = new SettingsService(
+      AppDataSource.getRepository(AppSetting),
+      AppDataSource.getRepository(FeatureFlag),
+      cache,
+    );
+    const contentDatasetsService = new ContentDatasetsService(
+      AppDataSource.getRepository(ContentDataset),
+      cache,
+    );
+    const publicAiService = new PublicAiService(AppDataSource.getRepository(AppSetting), cache);
+    const publicSearchService = new PublicSearchService(
+      AppDataSource.getRepository(ContentDataset),
+      cache,
+    );
 
   const apiRouter = express.Router();
   const publicRouter = express.Router();
@@ -439,18 +487,33 @@ async function bootstrap() {
 
   app.use('/api', apiRouter);
   app.use('/public', publicRouter);
-  app.use(express.static(distPath));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-
+  registerReactFallback(app);
   app.use(errorHandler);
 
-  app.listen(port, host, () => {
-    console.log(`Quran admin app listening on ${host}:${port}`);
-    console.log(`Serving React app from ${distPath}`);
-    console.log(`Serving persistent assets from ${storageRoot}`);
-  });
+  startupState.status = 'ok';
+  startupState.error = undefined;
+  startupState.updatedAt = new Date().toISOString();
+  console.log(`Serving persistent assets from ${storageRoot}`);
+  } catch (error: unknown) {
+    startupState.status = 'error';
+    startupState.error = describeError(error);
+    startupState.updatedAt = new Date().toISOString();
+
+    if (isDatabaseMissingConfiguration(error)) {
+      console.error('Database startup failed. Check DB_HOST, DB_USER, DB_PASS, and DB_NAME.');
+    }
+
+    console.error(error);
+
+    if (!assetsRegistered) {
+      app.use('/assets', unavailableHandler(startupState, 'Persistent assets'));
+    }
+
+    app.use('/api', unavailableHandler(startupState, 'Admin API'));
+    app.use('/public', unavailableHandler(startupState, 'Public API'));
+    registerReactFallback(app);
+    app.use(errorHandler);
+  }
 }
 
 function isPublicSetting(key: string) {
