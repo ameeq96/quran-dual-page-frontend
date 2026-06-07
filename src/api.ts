@@ -211,11 +211,19 @@ export function login(email: string, password: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   }).then(async (res) => {
+    const rawBody = await res.text();
+
     if (!res.ok) {
       throw new Error(`Login failed: ${res.status}`);
     }
+
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('Login API returned HTML. Check Plesk Node/API routing.');
+    }
+
     invalidateApiCache();
-    return res.json() as Promise<{ accessToken: string }>;
+    return JSON.parse(rawBody) as { accessToken: string };
   });
 }
 

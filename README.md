@@ -55,7 +55,9 @@ Notes:
 - Public/mobile clients should use `https://quranadmin.opplexify.com/public/config` and related `/public/*` endpoints.
 - Persistent files in `STORAGE_ROOT` are served from `/assets`.
 - `public/.htaccess` is copied into `dist/` so direct routes like `/login` work on Hostinger Apache hosting too
-- Login page supports Google reCAPTCHA when `VITE_RECAPTCHA_SITE_KEY` is configured
+- Login page supports classic Google reCAPTCHA v2 checkbox when
+  `VITE_RECAPTCHA_SITE_KEY` is configured. Use the site key, not the secret key,
+  and allow the deployed admin domain in the reCAPTCHA console.
 - Privacy Policy is published as a public React route at `/privacy-policy`
 
 ## Hostinger Deploy
