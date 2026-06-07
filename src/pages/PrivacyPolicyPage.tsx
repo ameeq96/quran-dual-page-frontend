@@ -4,7 +4,33 @@ import { Button, Card, appBackgroundClass, cn } from '../components/ui';
 
 const sections = [
   {
-    title: '1. Information we collect',
+    title: '1. Organization publisher',
+    body: (
+      <>
+        <p>
+          Quran Pak Dual Page Reader is published by Opplexify through an
+          organization developer account. In this Privacy Policy, "we", "us",
+          and "our" refer to Opplexify and the services operated for this app.
+        </p>
+        <ul className="list-disc pl-5">
+          <li>
+            <strong>Organization / publisher:</strong> Opplexify
+          </li>
+          <li>
+            <strong>Developer account type:</strong> Organization
+          </li>
+          <li>
+            <strong>App package:</strong> com.opplexify.quranpakdualpagereader
+          </li>
+          <li>
+            <strong>Primary service domain:</strong> https://quran.opplexify.com
+          </li>
+        </ul>
+      </>
+    ),
+  },
+  {
+    title: '2. Information we collect',
     body: (
       <>
         <p>
@@ -37,17 +63,18 @@ const sections = [
     ),
   },
   {
-    title: '2. Information we do not collect',
+    title: '3. Information we do not intentionally collect',
     body: (
       <p>
         Based on the current app features, we do not intentionally collect your
         precise location, contacts, calendar data, phone number, payment
-        information, health data, photos, or videos.
+        information, health data, photos, videos, or advertising identifiers for
+        ad targeting.
       </p>
     ),
   },
   {
-    title: '3. How we use data',
+    title: '4. How we use data',
     body: (
       <ul className="list-disc pl-5">
         <li>To remember your reading position and app settings.</li>
@@ -65,7 +92,7 @@ const sections = [
     ),
   },
   {
-    title: '4. When data is sent off your device',
+    title: '5. When data is sent off your device',
     body: (
       <ul className="list-disc pl-5">
         <li>
@@ -83,12 +110,13 @@ const sections = [
     ),
   },
   {
-    title: '5. Third-party and backend services',
+    title: '6. Data sharing and service providers',
     body: (
       <>
         <p>
-          The app may communicate with the following services depending on
-          feature use and configuration:
+          We do not sell user data and we do not share user data for third-party
+          advertising. The app may communicate with the following services
+          depending on feature use and configuration:
         </p>
         <ul className="list-disc pl-5">
           <li>
@@ -101,14 +129,14 @@ const sections = [
           </li>
         </ul>
         <div className="mt-4 rounded-[18px] border-l-4 border-[#d8b15c] bg-[rgba(216,177,92,0.12)] px-4 py-3 text-sm leading-6 text-[#4d5d5b]">
-          We do not state that your data is sold. We also do not state that
-          your data is shared for advertising purposes.
+          Service providers may process data only to operate, secure, support,
+          or improve the app features described in this policy.
         </div>
       </>
     ),
   },
   {
-    title: '6. Data storage and retention',
+    title: '7. Data storage and retention',
     body: (
       <>
         <p>
@@ -120,11 +148,16 @@ const sections = [
           configured backend for backup and restore purposes. If you export a
           backup file, the exported file remains where you save or share it.
         </p>
+        <p>
+          We retain backend data only for as long as needed to provide the
+          feature, comply with legal obligations, resolve disputes, prevent
+          abuse, or maintain service security.
+        </p>
       </>
     ),
   },
   {
-    title: '7. Your choices',
+    title: '8. Your choices and deletion requests',
     body: (
       <ul className="list-disc pl-5">
         <li>
@@ -142,11 +175,27 @@ const sections = [
           You can choose whether to submit text to AI tools by deciding whether
           to use those features.
         </li>
+        <li>
+          You may request deletion of backend sync data associated with your app
+          device/client identifier through the support contact listed on the app
+          store or the official Opplexify support channel.
+        </li>
       </ul>
     ),
   },
   {
-    title: '8. Security',
+    title: '9. International processing',
+    body: (
+      <p>
+        Opplexify and its service providers may process information in countries
+        where the app backend, hosting, or support systems operate. We take
+        reasonable steps to protect information according to this policy
+        wherever it is processed.
+      </p>
+    ),
+  },
+  {
+    title: '10. Security',
     body: (
       <p>
         We take reasonable steps to protect information processed by the app.
@@ -156,7 +205,7 @@ const sections = [
     ),
   },
   {
-    title: '9. Children',
+    title: '11. Children',
     body: (
       <p>
         The app is a general-use Quran reading application. If you believe data
@@ -166,7 +215,7 @@ const sections = [
     ),
   },
   {
-    title: '10. Changes to this Privacy Policy',
+    title: '12. Changes to this Privacy Policy',
     body: (
       <p>
         We may update this Privacy Policy from time to time. Updated versions
@@ -175,7 +224,7 @@ const sections = [
     ),
   },
   {
-    title: '11. Contact',
+    title: '13. Contact',
     body: (
       <p>
         For privacy-related questions, contact the publisher through the support
@@ -206,13 +255,16 @@ export default function PrivacyPolicyPage() {
           </div>
           <div className="flex flex-wrap gap-3 text-sm text-[#59716a]">
             <span className="rounded-[16px] border border-[rgba(15,42,39,0.12)] bg-white/75 px-4 py-2.5">
-              Effective date: April 19, 2026
+              Effective date: June 7, 2026
             </span>
             <span className="rounded-[16px] border border-[rgba(15,42,39,0.12)] bg-white/75 px-4 py-2.5">
               Package: com.opplexify.quranpakdualpagereader
             </span>
             <span className="rounded-[16px] border border-[rgba(15,42,39,0.12)] bg-white/75 px-4 py-2.5">
               Publisher: Opplexify
+            </span>
+            <span className="rounded-[16px] border border-[rgba(15,42,39,0.12)] bg-white/75 px-4 py-2.5">
+              Account type: Organization
             </span>
           </div>
           <div className="flex flex-wrap gap-3">
