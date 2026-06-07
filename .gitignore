@@ -6,6 +6,7 @@ server-dist/
 .env.local
 .env.*.local
 logs/
+storage/
 *.log
 *.err.log
 npm-debug.log*

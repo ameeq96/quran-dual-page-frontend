@@ -28,7 +28,7 @@ PORT=3000
 NODE_ENV=production
 APP_URL=https://quranadmin.opplexify.com
 APP_NAME=Quran Dual Page & Multi-Line Reader
-STORAGE_ROOT=/home/your-user/quran-admin-storage
+STORAGE_ROOT=storage
 
 DB_HOST=your-db-host
 DB_PORT=3306
@@ -98,19 +98,20 @@ Recommended Plesk settings:
 - Install command: `npm install`
 - Startup command: `npm start`
 
-Set production environment variables in Plesk, including real MySQL credentials and
-a writable absolute `STORAGE_ROOT`, for example:
+Set production environment variables in Plesk, including real MySQL credentials.
+For `STORAGE_ROOT`, use either `storage` or a real writable absolute path for the
+Plesk account, for example:
 
 ```env
 NODE_ENV=production
 HOST=0.0.0.0
 PORT=3000
 APP_URL=https://quran.opplexify.com
-STORAGE_ROOT=/home/<plesk-user>/quran-admin-storage
+STORAGE_ROOT=storage
 ```
 
-Replace `<plesk-user>` with the real account name. Leaving the placeholder value
-from `.env.example` will prevent Passenger from starting the Node app.
+Do not use `/home/your-user/quran-admin-storage`; `your-user` is only a placeholder
+and will fail on Plesk.
 
 After deployment, test:
 
