@@ -205,11 +205,11 @@ function withPagination(path: string, pagination?: PaginationInput) {
   return queryString ? `${path}?${queryString}` : path;
 }
 
-export function login(email: string, password: string) {
+export function login(email: string, password: string, captchaToken?: string) {
   return fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, captchaToken }),
   }).then(async (res) => {
     const rawBody = await res.text();
 

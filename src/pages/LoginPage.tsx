@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { login } from '../api';
 import { hasAdminToken, setAdminToken } from '../auth';
@@ -7,17 +7,7 @@ import { appBackgroundClass, Button, Card, ErrorBanner, FieldLabel, Input } from
 declare global {
   interface Window {
     grecaptcha?: {
-      render: (
-        container: HTMLElement,
-        parameters: {
-          sitekey: string;
-          callback: (token: string) => void;
-          'expired-callback'?: () => void;
-          'error-callback'?: () => void;
-          theme?: 'light' | 'dark';
-        },
-      ) => number;
-      reset: (widgetId?: number) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
       ready: (callback: () => void) => void;
     };
   }
@@ -30,11 +20,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [captchaToken, setCaptchaToken] = useState('');
   const [captchaReady, setCaptchaReady] = useState(!RECAPTCHA_SITE_KEY);
   const [submitting, setSubmitting] = useState(false);
-  const captchaContainerRef = useRef<HTMLDivElement | null>(null);
-  const captchaWidgetIdRef = useRef<number | null>(null);
   const navigate = useNavigate();
 
   if (hasAdminToken()) {
@@ -46,72 +33,67 @@ export default function LoginPage() {
       return;
     }
 
-    const mountCaptcha = () => {
-      if (!window.grecaptcha || !captchaContainerRef.current || captchaWidgetIdRef.current !== null) {
-        return;
-      }
-
-      window.grecaptcha.ready(() => {
-        if (!captchaContainerRef.current || captchaWidgetIdRef.current !== null) {
-          return;
-        }
-
-        captchaWidgetIdRef.current = window.grecaptcha!.render(captchaContainerRef.current, {
-          sitekey: RECAPTCHA_SITE_KEY,
-          theme: 'light',
-          callback: (token: string) => {
-            setCaptchaToken(token);
-            setError(null);
-          },
-          'expired-callback': () => setCaptchaToken(''),
-          'error-callback': () => {
-            setCaptchaToken('');
-            setError('reCAPTCHA failed to load. Refresh the page and try again.');
-          },
-        });
-        setCaptchaReady(true);
-      });
+    const prepareCaptcha = () => {
+      window.grecaptcha?.ready(() => setCaptchaReady(true));
     };
-
-    const existingScript = document.getElementById(RECAPTCHA_SCRIPT_ID) as HTMLScriptElement | null;
-    if (existingScript) {
-      mountCaptcha();
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.id = RECAPTCHA_SCRIPT_ID;
-    script.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
-    script.async = true;
-    script.defer = true;
-    script.onload = mountCaptcha;
-    script.onerror = () => {
+    const handleCaptchaError = () => {
       setError('Unable to load reCAPTCHA. Check your site key and domain configuration.');
     };
-    document.body.appendChild(script);
+    const existingScript = document.getElementById(RECAPTCHA_SCRIPT_ID) as HTMLScriptElement | null;
+    const script = existingScript || document.createElement('script');
+    script.addEventListener('load', prepareCaptcha);
+    script.addEventListener('error', handleCaptchaError);
+
+    if (existingScript) {
+      prepareCaptcha();
+    } else {
+      script.id = RECAPTCHA_SCRIPT_ID;
+      script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
+      script.async = true;
+      script.defer = true;
+      document.body.appendChild(script);
+    }
+
+    return () => {
+      script.removeEventListener('load', prepareCaptcha);
+      script.removeEventListener('error', handleCaptchaError);
+    };
   }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    if (RECAPTCHA_SITE_KEY && !captchaToken) {
-      setError('Complete reCAPTCHA before signing in.');
+    if (RECAPTCHA_SITE_KEY && (!captchaReady || !window.grecaptcha)) {
+      setError('reCAPTCHA is not ready. Refresh the page and try again.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const result = await login(email, password);
+      let captchaToken: string | undefined;
+      if (RECAPTCHA_SITE_KEY) {
+        try {
+          captchaToken = await window.grecaptcha!.execute(RECAPTCHA_SITE_KEY, { action: 'login' });
+        } catch {
+          throw new Error('reCAPTCHA check failed. Try again.');
+        }
+        if (!captchaToken) {
+          throw new Error('reCAPTCHA check failed. Try again.');
+        }
+      }
+      const result = await login(email, password, captchaToken);
       setAdminToken(result.accessToken);
       navigate('/overview');
     } catch (err) {
       const message = (err as Error).message;
-      setError(message === 'Login failed: 401' ? 'Invalid email or password.' : message);
-      if (RECAPTCHA_SITE_KEY && window.grecaptcha && captchaWidgetIdRef.current !== null) {
-        window.grecaptcha.reset(captchaWidgetIdRef.current);
-        setCaptchaToken('');
-      }
+      setError(
+        message === 'Login failed: 401'
+          ? 'Invalid email or password.'
+          : message === 'Login failed: 403'
+            ? 'reCAPTCHA check failed. Try again.'
+            : message,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -175,12 +157,9 @@ export default function LoginPage() {
             </FieldLabel>
 
             {RECAPTCHA_SITE_KEY ? (
-              <div className="grid gap-2">
-                <div className="min-h-[78px] rounded-[18px] border border-[rgba(15,42,39,0.08)] bg-[#f7f9f8] p-3">
-                  <div ref={captchaContainerRef} />
-                </div>
-                {!captchaReady ? <p className="m-0 text-xs text-[#74857f]">Loading reCAPTCHA...</p> : null}
-              </div>
+              <p className="m-0 text-xs text-[#74857f]">
+                {captchaReady ? 'Protected by reCAPTCHA.' : 'Loading reCAPTCHA...'}
+              </p>
             ) : (
               <div className="rounded-[18px] border border-[rgba(218,167,76,0.24)] bg-[rgba(255,247,221,0.86)] px-4 py-3 text-sm text-[#7c5b12]">
                 reCAPTCHA is disabled because `VITE_RECAPTCHA_SITE_KEY` is not configured yet.
@@ -190,7 +169,7 @@ export default function LoginPage() {
             {error ? <ErrorBanner>{error}</ErrorBanner> : null}
             <Button
               type="submit"
-              disabled={submitting || (Boolean(RECAPTCHA_SITE_KEY) && (!captchaReady || !captchaToken))}
+              disabled={submitting || (Boolean(RECAPTCHA_SITE_KEY) && !captchaReady)}
             >
               {submitting ? 'Signing In...' : 'Sign In'}
             </Button>

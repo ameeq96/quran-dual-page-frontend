@@ -67,6 +67,62 @@ function getBearerToken(req: Request) {
   return scheme?.toLowerCase() === 'bearer' && token ? token : null;
 }
 
+async function verifyLoginCaptcha(captchaToken: unknown) {
+  const siteKey = process.env.VITE_RECAPTCHA_SITE_KEY?.trim();
+  const secretKey = process.env.RECAPTCHA_SECRET_KEY?.trim();
+  if (!siteKey && !secretKey) {
+    return;
+  }
+  if (!siteKey || !secretKey) {
+    throw new HttpError(503, 'Sign-in verification is not configured.');
+  }
+  if (typeof captchaToken !== 'string' || !captchaToken.trim()) {
+    throw new HttpError(403, 'Complete reCAPTCHA before signing in.');
+  }
+
+  let expectedHostname: string;
+  try {
+    expectedHostname = new URL(process.env.APP_URL || 'https://quranadmin.opplexify.com').hostname;
+  } catch {
+    throw new HttpError(503, 'Sign-in verification is not configured.');
+  }
+
+  let result: Record<string, unknown>;
+  try {
+    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      body: new URLSearchParams({ secret: secretKey, response: captchaToken.trim() }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      throw new Error('reCAPTCHA service unavailable');
+    }
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('Invalid reCAPTCHA response');
+    }
+    result = payload as Record<string, unknown>;
+  } catch {
+    throw new HttpError(503, 'Unable to verify reCAPTCHA. Please try again.');
+  }
+
+  const age = Date.now() - Date.parse(typeof result.challenge_ts === 'string' ? result.challenge_ts : '');
+  if (
+    result.success !== true ||
+    result.action !== 'login' ||
+    (result.hostname !== expectedHostname && result.hostname !== 'quran.opplexify.com') ||
+    typeof result.score !== 'number' ||
+    !Number.isFinite(result.score) ||
+    result.score < 0.5 ||
+    result.score > 1 ||
+    !Number.isFinite(age) ||
+    age < -30000 ||
+    age > 120000
+  ) {
+    throw new HttpError(403, 'reCAPTCHA verification failed. Please try again.');
+  }
+}
+
 function isDatabaseMissingConfiguration(error: unknown) {
   if (!(error instanceof Error)) {
     return false;
@@ -214,8 +270,9 @@ async function bootstrap() {
 
   apiRouter.post(
     '/auth/login',
-    route((req) => {
-      const body = req.body as { email?: string; password?: string };
+    route(async (req) => {
+      const body = req.body as { email?: string; password?: string; captchaToken?: unknown };
+      await verifyLoginCaptcha(body.captchaToken);
       return authService.login(body.email ?? '', body.password ?? '');
     }),
   );
