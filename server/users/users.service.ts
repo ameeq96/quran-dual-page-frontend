@@ -1,6 +1,7 @@
-import { Repository } from 'typeorm';
+import { MoreThanOrEqual, Repository } from 'typeorm';
 import { MemoryCacheService } from '../common/cache/memory-cache.service.js';
 import { AppUser } from '../entities/app_user.entity.js';
+import { HttpError } from '../errors.js';
 import {
   buildPaginatedResponse,
   normalizePagination,
@@ -90,6 +91,10 @@ export class UsersService {
         ? await this.repo.findOne({ where: { email: payload.email.trim() } })
         : null);
 
+    if (user && !user.active) {
+      throw new HttpError(403, 'This reader has been disabled by an administrator.');
+    }
+
     const now = new Date();
     if (!user) {
       user = this.repo.create({
@@ -101,7 +106,6 @@ export class UsersService {
 
     user.deviceId = deviceId;
     user.email = payload.email?.trim() || user.email || null;
-    user.active = true;
     user.lastActiveAt = now;
     user.lastPageNumber = payload.lastPageNumber ?? user.lastPageNumber ?? null;
     user.syncUpdatedAt = now;
@@ -131,6 +135,10 @@ export class UsersService {
       };
     }
 
+    if (!user.active) {
+      throw new HttpError(403, 'This reader has been disabled by an administrator.');
+    }
+
     return {
       success: true,
       found: true,
@@ -139,6 +147,24 @@ export class UsersService {
       lastPageNumber: user.lastPageNumber,
       syncUpdatedAt: user.syncUpdatedAt,
       payload: this._parsePayload(user.syncPayloadJson),
+    };
+  }
+
+  async getActivitySummary() {
+    const now = Date.now();
+    const countSince = (days: number) => this.repo.count({
+      where: { lastActiveAt: MoreThanOrEqual(new Date(now - days * 86_400_000)) },
+    });
+    const [dailyActiveUsers, weeklyActiveUsers, monthlyActiveUsers] = await Promise.all([
+      countSince(1),
+      countSince(7),
+      countSince(30),
+    ]);
+    return {
+      dailyActiveUsers,
+      weeklyActiveUsers,
+      monthlyActiveUsers,
+      avgSessionMinutes: null,
     };
   }
 

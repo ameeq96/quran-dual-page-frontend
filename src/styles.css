@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+html { color-scheme: light; }
+body { margin: 0; min-width: 320px; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible { outline: 3px solid #c6a156; outline-offset: 3px; }
+th { white-space: nowrap; }
+td { overflow-wrap: anywhere; }

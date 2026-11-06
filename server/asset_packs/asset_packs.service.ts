@@ -314,8 +314,12 @@ export class AssetPacksService {
       case "kanzul_iman":
       case "kanzuliman":
         return "kanzul_iman";
-      default:
-        return null;
+      default: {
+        const key = value.trim().toLowerCase();
+        const lineKey = key.match(/^(\d+)_lines?$/);
+        const normalized = lineKey ? `${lineKey[1]}_lines` : key;
+        return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized) ? normalized : null;
+      }
     }
   }
 

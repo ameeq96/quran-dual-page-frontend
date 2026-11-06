@@ -20,7 +20,7 @@ type Summary = {
   dailyActiveUsers: number;
   weeklyActiveUsers: number;
   monthlyActiveUsers: number;
-  avgSessionMinutes: number;
+  avgSessionMinutes: number | null;
 };
 
 export default function AnalyticsPage() {
@@ -38,16 +38,16 @@ export default function AnalyticsPage() {
       <PageIntro
         eyebrow="Analytics"
         title="Usage Summary"
-        description="Track reader engagement through high-level activity metrics coming from the synced admin backend."
-        badge="Operational"
+        description="Track readers who synced recently. Offline reading and session duration are not measured by the backend."
+        badge="Sync activity"
       />
       {error && <ErrorBanner>Failed to load: {error}</ErrorBanner>}
 
       <div className={statsGridClass}>
-        <MetricCard label="Daily Active" value={summary?.dailyActiveUsers ?? '-'} hint="Readers active in the last 24 hours" />
-        <MetricCard label="Weekly Active" value={summary?.weeklyActiveUsers ?? '-'} hint="Readers active in the last 7 days" />
-        <MetricCard label="Monthly Active" value={summary?.monthlyActiveUsers ?? '-'} hint="Readers active in the last 30 days" />
-        <MetricCard label="Avg Session" value={`${summary?.avgSessionMinutes ?? '-'} min`} hint="Average reading session duration" />
+        <MetricCard label="Daily Active" value={summary?.dailyActiveUsers ?? '-'} hint="Readers synced in the last 24 hours" />
+        <MetricCard label="Weekly Active" value={summary?.weeklyActiveUsers ?? '-'} hint="Readers synced in the last 7 days" />
+        <MetricCard label="Monthly Active" value={summary?.monthlyActiveUsers ?? '-'} hint="Readers synced in the last 30 days" />
+        <MetricCard label="Avg Session" value={summary?.avgSessionMinutes == null ? 'Not measured' : `${summary.avgSessionMinutes} min`} hint="Session duration is not collected" />
       </div>
 
       <Card>
@@ -58,9 +58,9 @@ export default function AnalyticsPage() {
           </div>
         </div>
         <div className={metricRowClass}>
-          <span className={metricLabelClass}>Daily to Weekly retention signal</span>
+          <span className={metricLabelClass}>Daily / weekly synced readers</span>
           <strong className={metricValueClass}>
-            {summary ? `${summary.dailyActiveUsers}/${summary.weeklyActiveUsers || 1}` : '-'}
+            {summary ? `${summary.dailyActiveUsers}/${summary.weeklyActiveUsers}` : '-'}
           </strong>
         </div>
         <div className={metricRowClass}>

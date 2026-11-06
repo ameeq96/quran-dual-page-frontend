@@ -75,7 +75,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
 
       if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
+        let message = `Request failed: ${response.status}`;
+        try {
+          const error = await response.json() as { message?: unknown };
+          if (typeof error.message === 'string' && error.message.trim()) {
+            message = error.message;
+          }
+        } catch {
+          // Keep the status when an upstream response is not JSON.
+        }
+        throw new Error(message);
       }
 
       if (response.status === 204) {
@@ -242,7 +251,7 @@ export function fetchOverview() {
     totalBookmarks: number;
     totalHistoryEntries: number;
     totalHifzEntries: number;
-    totalSessions: number;
+    totalSessions: number | null;
     enabledEditions: number;
     totalEditions: number;
     activeDatasets: number;
@@ -415,7 +424,7 @@ export function toggleFlag(id: number, enabled: boolean) {
 }
 
 export function fetchAnalytics() {
-  return request<{ dailyActiveUsers: number; weeklyActiveUsers: number; monthlyActiveUsers: number; avgSessionMinutes: number }>(
+  return request<{ dailyActiveUsers: number; weeklyActiveUsers: number; monthlyActiveUsers: number; avgSessionMinutes: number | null }>(
     '/analytics/summary',
   );
 }

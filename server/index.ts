@@ -150,6 +150,10 @@ function unavailableHandler(startupState: StartupState, serviceName: string): Re
   };
 }
 
+function publishedAnnouncements<T extends { publishAt: Date | null }>(items: T[], now = Date.now()) {
+  return items.filter((item) => !item.publishAt || item.publishAt.getTime() <= now);
+}
+
 function registerReactFallback(app: express.Express) {
   app.use(express.static(distPath));
   app.get('*', (_req, res) => {
@@ -363,14 +367,7 @@ async function bootstrap() {
     ),
   );
 
-  apiRouter.get('/analytics/summary', (_req, res) => {
-    res.json({
-      dailyActiveUsers: 0,
-      weeklyActiveUsers: 0,
-      monthlyActiveUsers: 0,
-      avgSessionMinutes: 0,
-    });
-  });
+  apiRouter.get('/analytics/summary', route(() => usersService.getActivitySummary()));
 
   apiRouter.get(
     '/content-datasets',
@@ -403,12 +400,12 @@ async function bootstrap() {
 
   publicRouter.get(
     '/config',
-    route((req) => {
+    route(async (req) => {
       const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
       const hostHeader = req.get('host');
       const cacheKey = `public-config:${proto}:${hostHeader ?? 'unknown-host'}`;
 
-      return cache.getOrSet(cacheKey, 60_000, async () => {
+      const config = await cache.getOrSet(cacheKey, 60_000, async () => {
         const publicBaseUrl = hostHeader ? `${proto}://${hostHeader}` : '';
         const assetsBaseUrl = publicBaseUrl ? `${publicBaseUrl}/assets` : '';
         const [
@@ -485,6 +482,10 @@ async function bootstrap() {
           serverTime: new Date().toISOString(),
         };
       });
+      return {
+        ...config,
+        announcements: publishedAnnouncements(config.announcements),
+      };
     }),
   );
 

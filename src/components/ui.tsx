@@ -7,16 +7,16 @@ export function cn(...values: ClassValue[]) {
 }
 
 export const appBackgroundClass =
-  "min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(25,123,103,0.12),transparent_32%),radial-gradient(circle_at_top_right,rgba(218,167,76,0.16),transparent_26%),linear-gradient(180deg,#f7f2e7_0%,#f1ebde_100%)] font-['IBM_Plex_Sans','Segoe_UI',sans-serif] text-[#10201c]";
+  "min-h-screen bg-[#f4f6f3] font-['IBM_Plex_Sans','Segoe_UI',sans-serif] text-[#10201c]";
 
-export const pageStackClass = 'grid gap-8';
+export const pageStackClass = 'grid min-w-0 gap-6';
 export const statsGridClass = 'grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6';
-export const sectionGridClass = 'grid gap-6 xl:grid-cols-2';
-export const sectionGridWideClass = 'grid gap-6 xl:grid-cols-2 2xl:grid-cols-3';
+export const sectionGridClass = 'grid min-w-0 gap-6 xl:grid-cols-[repeat(2,minmax(0,1fr))]';
+export const sectionGridWideClass = 'grid min-w-0 gap-6 xl:grid-cols-[repeat(2,minmax(0,1fr))] 2xl:grid-cols-[repeat(3,minmax(0,1fr))]';
 export const cardHeaderClass =
   'mb-5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between';
 export const cardTitleGroupClass = 'grid gap-1.5';
-export const cardTitleClass = 'm-0 text-[1.28rem] font-semibold leading-tight text-[#102042]';
+export const cardTitleClass = 'm-0 text-[1.28rem] font-semibold leading-tight text-[#123c34]';
 export const cardSubtitleClass = 'm-0 text-sm leading-6 text-[#59716a]';
 export const metricRowClass =
   'flex flex-col gap-2 border-b border-[rgba(15,42,39,0.08)] py-3.5 last:border-b-0 md:flex-row md:items-center md:justify-between';
@@ -31,7 +31,7 @@ export const pillRowClass = 'flex flex-wrap gap-2.5';
 export const inlineActionsClass = 'flex flex-wrap gap-2';
 export const tabBarClass = 'mt-6 flex flex-wrap gap-2.5';
 export const tableWrapClass =
-  'overflow-auto rounded-[20px] border border-[rgba(15,42,39,0.08)] bg-white/70';
+  'min-w-0 max-w-full overflow-x-auto rounded-xl border border-[rgba(15,42,39,0.08)] bg-white/70';
 export const tableClass = 'min-w-[760px] w-full border-collapse text-sm';
 export const tableHeadClass =
   'border-b border-[rgba(15,42,39,0.08)] bg-[rgba(15,118,110,0.04)] px-4 py-3 text-left text-[0.76rem] font-semibold uppercase tracking-[0.12em] text-[#74857f]';
@@ -62,7 +62,7 @@ export function Card({
   return (
     <div
       className={cn(
-        'rounded-[26px] border border-white/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(252,249,243,0.98))] p-6 shadow-[0_18px_48px_rgba(17,24,39,0.09)] backdrop-blur-xl',
+        'min-w-0 rounded-2xl border border-[#e2e8e2] bg-white p-4 shadow-[0_2px_8px_rgba(17,42,32,0.03)] sm:p-6',
         className,
       )}
     >
@@ -85,12 +85,12 @@ export function MetricCard({
   return (
     <div
       className={cn(
-        'grid gap-2 rounded-[20px] border border-[rgba(15,118,110,0.12)] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(246,251,249,0.98))] p-[18px] shadow-[0_12px_28px_rgba(17,24,39,0.05)]',
+        'grid min-w-0 gap-3 rounded-2xl border border-[#e2e8e2] bg-white p-5 shadow-[0_2px_8px_rgba(17,42,32,0.03)]',
         className,
       )}
     >
       <span className="text-[0.77rem] uppercase tracking-[0.14em] text-[#74857f]">{label}</span>
-      <strong className="text-[1.7rem] leading-none text-[#102042]">{value}</strong>
+      <strong className="text-[1.7rem] leading-none text-[#123c34]">{value}</strong>
       {hint ? <small className="text-sm leading-6 text-[#59716a]">{hint}</small> : null}
     </div>
   );
@@ -108,9 +108,9 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] px-4 py-[11px] text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55',
+        'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-[11px] text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55',
         variant === 'primary'
-          ? 'border border-transparent bg-[linear-gradient(135deg,#0f766e,#139184)] text-white shadow-[0_12px_24px_rgba(15,118,110,0.2)] hover:-translate-y-px'
+          ? 'border border-transparent bg-[#176b52] text-white shadow-sm hover:bg-[#10553f]'
           : 'border border-[rgba(15,118,110,0.18)] bg-[rgba(15,118,110,0.04)] text-[#0b5f59] hover:border-[rgba(15,118,110,0.35)] hover:bg-[rgba(15,118,110,0.08)]',
         className,
       )}
@@ -229,7 +229,7 @@ export function FieldLabel({
   className?: string;
 }) {
   return (
-    <label className={cn('grid gap-2 text-sm text-[#59716a]', className)}>
+    <label className={cn('grid min-w-0 gap-2 text-sm text-[#59716a]', className)}>
       <span>{label}</span>
       {children}
     </label>

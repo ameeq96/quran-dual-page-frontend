@@ -17,10 +17,10 @@ export default function PageIntro({
   actions,
 }: PageIntroProps) {
   return (
-    <header className="flex flex-col gap-4 rounded-[28px] border border-white/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(255,251,243,0.94))] p-6 shadow-[0_18px_48px_rgba(17,24,39,0.09)] backdrop-blur-[14px] md:flex-row md:items-start md:justify-between">
-      <div className="grid gap-2">
+    <header className="flex min-w-0 flex-col gap-4 border-b border-[#dce5dc] pb-6 md:flex-row md:items-start md:justify-between">
+      <div className="grid min-w-0 gap-2">
         <p className="m-0 text-[0.77rem] uppercase tracking-[0.18em] text-[#74857f]">{eyebrow}</p>
-        <h1 className="m-0 text-[clamp(1.9rem,2vw,2.7rem)] font-semibold leading-[1.08] text-[#102042]">
+        <h1 className="m-0 text-[clamp(1.65rem,2.4vw,2.2rem)] font-semibold leading-[1.08] text-[#123c34]">
           {title}
         </h1>
         {description ? <p className="m-0 max-w-[760px] text-sm leading-[1.65] text-[#59716a]">{description}</p> : null}
@@ -30,7 +30,7 @@ export default function PageIntro({
         {badge ? (
           <span
             className={cn(
-              'inline-flex items-center rounded-full bg-[linear-gradient(135deg,#0f766e,#128a80)] px-3.5 py-[9px] text-sm font-bold text-white',
+              'inline-flex items-center rounded-full border border-[#dbe7da] bg-[#eaf1e6] px-3 py-2 text-xs font-semibold text-[#376145]',
             )}
           >
             {badge}

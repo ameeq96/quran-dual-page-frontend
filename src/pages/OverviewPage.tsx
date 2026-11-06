@@ -30,7 +30,7 @@ type Overview = {
   totalBookmarks: number;
   totalHistoryEntries: number;
   totalHifzEntries: number;
-  totalSessions: number;
+  totalSessions: number | null;
   enabledEditions: number;
   totalEditions: number;
   activeDatasets: number;

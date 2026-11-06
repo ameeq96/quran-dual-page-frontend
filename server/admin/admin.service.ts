@@ -85,7 +85,7 @@ export class AdminService {
         totalBookmarks: syncSummary.totalBookmarks,
         totalHistoryEntries: syncSummary.totalHistoryEntries,
         totalHifzEntries: syncSummary.totalHifzEntries,
-        totalSessions: 0,
+        totalSessions: null,
         enabledEditions,
         totalEditions,
         activeAssetPacks: activeAssetPacks.length,

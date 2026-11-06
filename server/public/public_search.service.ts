@@ -433,18 +433,18 @@ export class PublicSearchService {
         nameComplex: String(item.nameComplex ?? ''),
         nameArabic: String(item.nameArabic ?? ''),
         translatedName: String(item.translatedName ?? ''),
-        standardStartPage: Number(item.standardStartPage ?? 1),
+        standardStartPage: this._parsePageNumber(item.standardStartPage),
         tajScanStartPage: surahOverrides.get(Number(item.id ?? 0)) ??
-            Number(item.tajScanStartPage ?? item.standardStartPage ?? 1),
+            this._parsePageNumber(item.tajScanStartPage ?? item.standardStartPage),
       }));
 
       const juzs = (payload.siparas ?? []).map((item) => ({
         number: Number(item.number ?? 0),
         name: String(item.name ?? ''),
         nameArabic: String(item.nameArabic ?? ''),
-        standardStartPage: Number(item.standardStartPage ?? 1),
+        standardStartPage: this._parsePageNumber(item.standardStartPage),
         tajScanStartPage: juzOverrides.get(Number(item.number ?? 0)) ??
-            Number(item.tajScanStartPage ?? item.standardStartPage ?? 1),
+            this._parsePageNumber(item.tajScanStartPage ?? item.standardStartPage),
       }));
 
       return { surahs, juzs };
@@ -571,8 +571,15 @@ export class PublicSearchService {
       }
 
       const rawJson = fs.readFileSync(dataset.storagePath, 'utf8');
-      return JSON.parse(rawJson) as T;
+      return JSON.parse(rawJson.replace(/^\uFEFF/, '')) as T;
     });
+  }
+
+  private _parsePageNumber(value: unknown) {
+    const raw = String(value ?? '').trim();
+    const match = /^(\d+)(?:\.(?:jpe?g|png|webp))?$/i.exec(raw);
+    const page = match ? Number(match[1]) : 0;
+    return Number.isSafeInteger(page) && page > 0 ? page : 1;
   }
 
   private _parseOverrideMap(rawValue: Record<string, unknown> | undefined) {

@@ -138,7 +138,7 @@ export default function SettingsPage() {
   const pageSize = 10;
 
   const refresh = (nextSettingsPage = settingsPage, nextFlagsPage = flagsPage) => {
-    Promise.all([
+    return Promise.all([
       fetchSettings({ page: nextSettingsPage, pageSize }),
       fetchFlags({ page: nextFlagsPage, pageSize }),
     ])
@@ -176,7 +176,7 @@ export default function SettingsPage() {
     }
 
     try {
-      const matchedSetting = await resolveSettingRecord(normalizedKey);
+      const matchedSetting = await fetchSettingByKey(normalizedKey);
       setSettingValue(matchedSetting?.value ?? '');
     } catch (err) {
       setError((err as Error).message);
@@ -214,7 +214,7 @@ export default function SettingsPage() {
 
   const saveSettingByKey = async (key: string, value: string) => {
     const existing = await resolveSettingRecord(key);
-    await upsertSetting({
+    return upsertSetting({
       id: existing?.id,
       key,
       value,
@@ -305,12 +305,9 @@ export default function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      await saveSettingByKey(settingKey.trim(), settingValue);
-      setSettingValue(settingValue);
-      await Promise.all([
-        refresh(settingsPage, flagsPage),
-        loadSettingValue(settingKey),
-      ]);
+      const saved = await saveSettingByKey(settingKey.trim(), settingValue);
+      setSettingValue(saved.value);
+      await refresh(settingsPage, flagsPage);
     } catch (err) {
       setError((err as Error).message);
     } finally {
