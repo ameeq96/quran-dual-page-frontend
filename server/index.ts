@@ -173,7 +173,10 @@ async function bootstrap() {
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,Range,If-Range');
+    if (req.path.startsWith('/assets/')) {
+      res.header('Access-Control-Expose-Headers', 'Content-Length,Content-Range,Accept-Ranges,ETag,Last-Modified');
+    }
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
       return;
