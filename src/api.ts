@@ -118,8 +118,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return execute;
   }
 
-  const pending = execute
+  const pending: Promise<T> = execute
     .then((value) => {
+      if (inflightRequests.get(requestKey) !== pending) {
+        return request<T>(path, init);
+      }
       responseCache.set(requestKey, {
         expiresAt: Date.now() + GET_CACHE_TTL_MS,
         value,
@@ -127,7 +130,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       return value;
     })
     .finally(() => {
-      inflightRequests.delete(requestKey);
+      if (inflightRequests.get(requestKey) === pending) {
+        inflightRequests.delete(requestKey);
+      }
     });
 
   inflightRequests.set(requestKey, pending);

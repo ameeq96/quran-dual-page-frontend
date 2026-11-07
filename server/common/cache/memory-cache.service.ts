@@ -23,13 +23,18 @@ export class MemoryCacheService {
       return inflight as Promise<T>;
     }
 
-    const pending = factory()
+    const pending: Promise<T> = factory()
       .then((value) => {
+        if (this.inflight.get(key) !== pending) {
+          return this.getOrSet(key, ttlMs, factory);
+        }
         this.set(key, value, ttlMs);
         return value;
       })
       .finally(() => {
-        this.inflight.delete(key);
+        if (this.inflight.get(key) === pending) {
+          this.inflight.delete(key);
+        }
       });
 
     this.inflight.set(key, pending);

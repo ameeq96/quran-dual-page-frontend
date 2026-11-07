@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   fetchFlags,
   fetchSettingByKey,
@@ -127,6 +127,10 @@ export default function SettingsPage() {
   const [flagsPage, setFlagsPage] = useState(1);
   const [settingKey, setSettingKey] = useState(suggestedSettingKeys[0]);
   const [settingValue, setSettingValue] = useState('');
+  const [settingLoading, setSettingLoading] = useState(false);
+  const settingRequestId = useRef(0);
+  const settingKeyRef = useRef(settingKey.trim());
+  const settingEditRevision = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProviderMode>('local');
@@ -167,19 +171,46 @@ export default function SettingsPage() {
     return fetchSettingByKey(normalizedKey);
   };
 
+  const changeSettingKey = (nextKey: string) => {
+    settingRequestId.current += 1;
+    settingKeyRef.current = nextKey.trim();
+    setSettingKey(nextKey);
+    setSettingLoading(false);
+  };
+
+  const changeSettingValue = (nextValue: string) => {
+    settingEditRevision.current += 1;
+    setSettingValue(nextValue);
+  };
+
   const loadSettingValue = async (nextKey: string) => {
     const normalizedKey = nextKey.trim();
+    const requestId = ++settingRequestId.current;
+    const editRevision = settingEditRevision.current;
+    settingKeyRef.current = normalizedKey;
     setSettingKey(nextKey);
     if (!normalizedKey) {
       setSettingValue('');
+      setSettingLoading(false);
       return;
     }
 
+    setSettingLoading(true);
     try {
       const matchedSetting = await fetchSettingByKey(normalizedKey);
-      setSettingValue(matchedSetting?.value ?? '');
+      if (requestId === settingRequestId.current &&
+          normalizedKey === settingKeyRef.current &&
+          editRevision === settingEditRevision.current) {
+        setSettingValue(matchedSetting?.value ?? '');
+      }
     } catch (err) {
-      setError((err as Error).message);
+      if (requestId === settingRequestId.current) {
+        setError((err as Error).message);
+      }
+    } finally {
+      if (requestId === settingRequestId.current) {
+        setSettingLoading(false);
+      }
     }
   };
 
@@ -222,6 +253,7 @@ export default function SettingsPage() {
   };
 
   const handleSaveAiRuntime = async () => {
+    const editRevision = settingEditRevision.current;
     setBusy(true);
     setError(null);
     try {
@@ -239,7 +271,9 @@ export default function SettingsPage() {
       await Promise.all([
         refresh(settingsPage, flagsPage),
         loadAiRuntime(),
-        loadSettingValue(settingKey),
+        editRevision === settingEditRevision.current
+          ? loadSettingValue(settingKeyRef.current)
+          : Promise.resolve(),
       ]);
     } catch (err) {
       setError((err as Error).message);
@@ -297,7 +331,10 @@ export default function SettingsPage() {
   }, []);
 
   const handleSave = async () => {
-    if (!settingKey.trim()) {
+    if (settingLoading) return;
+    const savedKey = settingKey.trim();
+    const editRevision = settingEditRevision.current;
+    if (!savedKey) {
       setError('Setting key is required.');
       return;
     }
@@ -305,8 +342,11 @@ export default function SettingsPage() {
     setBusy(true);
     setError(null);
     try {
-      const saved = await saveSettingByKey(settingKey.trim(), settingValue);
-      setSettingValue(saved.value);
+      const saved = await saveSettingByKey(savedKey, settingValue);
+      if (savedKey === settingKeyRef.current &&
+          editRevision === settingEditRevision.current) {
+        setSettingValue(saved.value);
+      }
       await refresh(settingsPage, flagsPage);
     } catch (err) {
       setError((err as Error).message);
@@ -316,8 +356,8 @@ export default function SettingsPage() {
   };
 
   const handleEdit = (setting: Setting) => {
-    setSettingKey(setting.key);
-    setSettingValue(setting.value);
+    changeSettingKey(setting.key);
+    changeSettingValue(setting.value);
   };
 
   const handleToggleFlag = async (flag: Flag) => {
@@ -440,7 +480,7 @@ export default function SettingsPage() {
             <Input
               list="setting-key-suggestions"
               value={settingKey}
-              onChange={(e) => setSettingKey(e.target.value)}
+              onChange={(e) => changeSettingKey(e.target.value)}
               onBlur={() => void loadSettingValue(settingKey)}
               placeholder="app_title"
             />
@@ -451,11 +491,11 @@ export default function SettingsPage() {
             </datalist>
           </FieldLabel>
           <FieldLabel label="Value">
-            <Input value={settingValue} onChange={(e) => setSettingValue(e.target.value)} placeholder="Enter setting value" />
+            <Input value={settingValue} onChange={(e) => changeSettingValue(e.target.value)} placeholder={settingLoading ? 'Loading setting...' : 'Enter setting value'} aria-busy={settingLoading} />
           </FieldLabel>
         </div>
         <div className={formActionsClass}>
-          <Button disabled={busy} onClick={handleSave}>
+          <Button disabled={busy || settingLoading} onClick={handleSave}>
             Save Setting
           </Button>
         </div>

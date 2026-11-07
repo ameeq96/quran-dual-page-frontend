@@ -540,8 +540,8 @@ async function bootstrap() {
       ),
     ),
   );
-  publicRouter.post('/sync/push', route((req) => usersService.pushSync(req.body)));
-  publicRouter.get('/sync/pull', route((req) => usersService.pullSync(String(req.query.deviceId ?? ''))));
+  publicRouter.post('/sync/push', route((req) => usersService.pushSync(req.body, getBearerToken(req) ?? undefined)));
+  publicRouter.get('/sync/pull', route((req) => usersService.pullSync(String(req.query.deviceId ?? ''), getBearerToken(req) ?? undefined)));
 
   app.use('/api', apiRouter);
   app.use('/public', publicRouter);

@@ -1,4 +1,5 @@
 import { MoreThanOrEqual, Repository } from 'typeorm';
+import { createHash, timingSafeEqual } from 'crypto';
 import { MemoryCacheService } from '../common/cache/memory-cache.service.js';
 import { AppUser } from '../entities/app_user.entity.js';
 import { HttpError } from '../errors.js';
@@ -6,6 +7,8 @@ import {
   buildPaginatedResponse,
   normalizePagination,
 } from '../common/pagination/pagination.js';
+
+const SYNC_AUTH_KEY = '__readerSyncAuth';
 
 type SyncSummary = {
   notesCount: number;
@@ -70,7 +73,10 @@ export class UsersService {
     await this.repo.update({ id }, { active });
     const user = await this.repo.findOne({ where: { id } });
     this._invalidateAdminCaches();
-    return user;
+    return user ? {
+      ...user,
+      syncPayloadJson: user.syncPayloadJson ? JSON.stringify(this._parsePayload(user.syncPayloadJson)) : null,
+    } : null;
   }
 
   async pushSync(payload: {
@@ -79,75 +85,102 @@ export class UsersService {
     appVersion?: string | null;
     lastPageNumber?: number | null;
     payload?: Record<string, unknown>;
-  }) {
-    const deviceId = payload.deviceId?.trim();
-    if (!deviceId) {
-      return { success: false, error: 'deviceId missing' };
+  }, token?: string) {
+    const deviceId = this._syncDeviceId(payload.deviceId);
+    const tokenHash = this._syncTokenHash(token);
+    if (payload.email != null && payload.email !== '') {
+      throw new HttpError(400, 'Email cannot establish reader ownership.');
     }
-
-    let user =
-      (await this.repo.findOne({ where: { deviceId } })) ??
-      (payload.email?.trim()
-        ? await this.repo.findOne({ where: { email: payload.email.trim() } })
-        : null);
-
-    if (user && !user.active) {
-      throw new HttpError(403, 'This reader has been disabled by an administrator.');
+    if (!payload.payload || typeof payload.payload !== 'object' || Array.isArray(payload.payload) ||
+        Object.prototype.hasOwnProperty.call(payload.payload, SYNC_AUTH_KEY)) {
+      throw new HttpError(400, 'A reader snapshot without reserved server fields is required.');
     }
+    return this._withSyncLock(deviceId, async (repo) => {
+      const matches = await repo.find({ where: { deviceId } });
+      if (matches.length > 1) throw new HttpError(409, 'Reader identity is ambiguous.');
+      let user = matches[0];
+      if (user) this._verifySyncOwner(user, tokenHash);
+      else user = repo.create({ deviceId, email: null, active: true });
+      if (!user.active) throw new HttpError(403, 'This reader has been disabled by an administrator.');
 
-    const now = new Date();
-    if (!user) {
-      user = this.repo.create({
+      const now = new Date();
+      user.lastActiveAt = now;
+      user.lastPageNumber = payload.lastPageNumber ?? user.lastPageNumber ?? null;
+      user.syncUpdatedAt = now;
+      user.appVersion = payload.appVersion?.trim() || user.appVersion || null;
+      user.syncPayloadJson = JSON.stringify({
+        ...payload.payload,
         deviceId,
-        email: payload.email?.trim() || null,
-        active: true,
+        [SYNC_AUTH_KEY]: { version: 1, tokenHash },
       });
-    }
+      const saved = await repo.save(user);
+      this._invalidateAdminCaches();
+      return { success: true, userId: saved.id, syncUpdatedAt: saved.syncUpdatedAt };
+    });
+  }
 
-    user.deviceId = deviceId;
-    user.email = payload.email?.trim() || user.email || null;
-    user.lastActiveAt = now;
-    user.lastPageNumber = payload.lastPageNumber ?? user.lastPageNumber ?? null;
-    user.syncUpdatedAt = now;
-    user.appVersion = payload.appVersion?.trim() || user.appVersion || null;
-    user.syncPayloadJson = JSON.stringify(payload.payload ?? {});
-
-    const saved = await this.repo.save(user);
-    this._invalidateAdminCaches();
+  async pullSync(deviceId: string, token?: string) {
+    const normalized = this._syncDeviceId(deviceId);
+    const tokenHash = this._syncTokenHash(token);
+    const matches = await this.repo.find({ where: { deviceId: normalized } });
+    if (matches.length > 1) throw new HttpError(409, 'Reader identity is ambiguous.');
+    const user = matches[0];
+    if (!user) return { success: true, found: false };
+    this._verifySyncOwner(user, tokenHash);
+    if (!user.active) throw new HttpError(403, 'This reader has been disabled by an administrator.');
     return {
-      success: true,
-      userId: saved.id,
-      syncUpdatedAt: saved.syncUpdatedAt,
+      success: true, found: true,
+      ...this._buildUserSummary(user),
+      email: user.email, lastPageNumber: user.lastPageNumber,
+      syncUpdatedAt: user.syncUpdatedAt, payload: this._parsePayload(user.syncPayloadJson),
     };
   }
 
-  async pullSync(deviceId: string) {
-    const normalized = deviceId.trim();
-    if (!normalized) {
-      return { success: false, error: 'deviceId missing' };
+  private _syncDeviceId(value: unknown) {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/.test(value.trim())) {
+      throw new HttpError(400, 'A valid reader device ID is required.');
     }
+    return value.trim().toLowerCase();
+  }
 
-    const user = await this.repo.findOne({ where: { deviceId: normalized } });
-    if (!user) {
-      return {
-        success: true,
-        found: false,
-      };
+  private _syncTokenHash(token: unknown) {
+    if (typeof token !== 'string' || token.length !== 43 || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      throw new HttpError(401, 'A reader sync credential is required.');
     }
+    return createHash('sha256').update(token, 'utf8').digest('hex');
+  }
 
-    if (!user.active) {
-      throw new HttpError(403, 'This reader has been disabled by an administrator.');
+  private _verifySyncOwner(user: AppUser, providedHash: string) {
+    const metadata = this._safeRecord(this._rawPayload(user.syncPayloadJson)[SYNC_AUTH_KEY]);
+    const expectedHash = metadata.tokenHash;
+    if (metadata.version !== 1 || typeof expectedHash !== 'string' || !/^[a-f0-9]{64}$/.test(expectedHash) ||
+        !timingSafeEqual(Buffer.from(expectedHash, 'hex'), Buffer.from(providedHash, 'hex'))) {
+      throw new HttpError(401, 'Reader sync credential is invalid. Existing backups remain available to the administrator.');
     }
+  }
 
-    return {
-      success: true,
-      found: true,
-      ...this._buildUserSummary(user),
-      email: user.email,
-      lastPageNumber: user.lastPageNumber,
-      syncUpdatedAt: user.syncUpdatedAt,
-      payload: this._parsePayload(user.syncPayloadJson),
-    };
+  private async _withSyncLock<T>(deviceId: string, run: (repo: Repository<AppUser>) => Promise<T>): Promise<T> {
+    const runner = this.repo.manager.connection.createQueryRunner();
+    const lockName = 'quran-sync:' + createHash('sha256').update(deviceId).digest('hex').slice(0, 48);
+    await runner.connect();
+    let locked = false;
+    try {
+      const result = await runner.query('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
+      locked = Number(result[0]?.acquired) === 1;
+      if (!locked) throw new HttpError(503, 'Reader sync is busy. Try again.');
+      await runner.startTransaction();
+      try {
+        const value = await run(runner.manager.getRepository(AppUser));
+        await runner.commitTransaction();
+        return value;
+      } catch (error) {
+        await runner.rollbackTransaction();
+        throw error;
+      }
+    } finally {
+      try { if (locked) await runner.query('SELECT RELEASE_LOCK(?) AS released', [lockName]); }
+      finally { await runner.release(); }
+    }
   }
 
   async getActivitySummary() {
@@ -230,16 +263,16 @@ export class UsersService {
     this.cache.deleteByPrefix('admin:');
   }
 
-  private _parsePayload(jsonPayload: string | null) {
-    if (!jsonPayload || !jsonPayload.trim()) {
-      return {};
-    }
+  private _rawPayload(jsonPayload: string | null): Record<string, unknown> {
+    if (!jsonPayload?.trim()) return {};
+    try { return this._safeRecord(JSON.parse(jsonPayload)); }
+    catch (_) { return {}; }
+  }
 
-    try {
-      return JSON.parse(jsonPayload) as Record<string, unknown>;
-    } catch (_) {
-      return {};
-    }
+  private _parsePayload(jsonPayload: string | null) {
+    const payload = { ...this._rawPayload(jsonPayload) };
+    delete payload[SYNC_AUTH_KEY];
+    return payload;
   }
 
   private _buildUserSummary(user: AppUser) {

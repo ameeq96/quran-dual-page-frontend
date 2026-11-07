@@ -168,35 +168,56 @@ export class ContentDatasetsService {
       } else {
         const chapters = list(root.chapters, 'chapters');
         uniqueIntegers(chapters, 'id', 'chapters', 114);
-        if (chapters.some((chapter) => !requiredText(chapter.nameSimple))) {
-          invalid('chapters require nameSimple');
+        for (const chapter of chapters) {
+          if (!requiredText(chapter.nameSimple) || !positiveInteger(chapter.versesCount)) {
+            invalid('chapters require nameSimple and a positive versesCount');
+          }
+          for (const field of ['nameArabic', 'translatedName', 'revelationPlace']) {
+            if (typeof chapter[field] !== 'string') {
+              invalid(`chapter ${field} must be text`);
+            }
+          }
+          if (!Array.isArray(chapter.pages) || chapter.pages.length === 0 ||
+              !chapter.pages.every(positiveInteger)) {
+            invalid('chapter pages must be a non-empty array of positive integers');
+          }
         }
         for (const page of pages) {
           for (const field of ['chapterIds', 'juzNumbers', 'hizbNumbers', 'rubElHizbNumbers', 'rukuNumbers', 'manzilNumbers']) {
-            if (page[field] !== undefined && (!Array.isArray(page[field]) ||
-                !(page[field] as unknown[]).every(positiveInteger))) {
+            if (!Array.isArray(page[field]) ||
+                !(page[field] as unknown[]).every(positiveInteger)) {
               invalid(`${field} must be an array of positive integers`);
             }
           }
+          if (!Array.isArray(page.sajdahVerseKeys) ||
+              !page.sajdahVerseKeys.every((value) => typeof value === 'string')) {
+            invalid('sajdahVerseKeys must be an array of text values');
+          }
           for (const field of ['translationEn', 'translationUr']) {
-            if (page[field] !== undefined && typeof page[field] !== 'string') {
+            if (page[field] != null && typeof page[field] !== 'string') {
               invalid(`${field} must be text`);
             }
           }
-          if (page.verses !== undefined) {
-            if (!Array.isArray(page.verses)) {
-              invalid('verses must be an array');
+          if (!Array.isArray(page.verses)) {
+            invalid('verses must be an array');
+          }
+          for (const value of page.verses as unknown[]) {
+            const verse = record(value, 'verse');
+            if (!requiredText(verse.verseKey) || !positiveInteger(verse.chapterId) ||
+                !positiveInteger(verse.verseNumber)) {
+              invalid('verses require verseKey, chapterId, and verseNumber');
             }
-            for (const value of page.verses as unknown[]) {
-              const verse = record(value, 'verse');
-              if (!requiredText(verse.verseKey) || !positiveInteger(verse.chapterId) ||
-                  !positiveInteger(verse.verseNumber)) {
-                invalid('verses require verseKey, chapterId, and verseNumber');
+            for (const field of ['juzNumber', 'hizbNumber', 'rubElHizbNumber', 'rukuNumber', 'manzilNumber']) {
+              if (!positiveInteger(verse[field])) {
+                invalid(`verse ${field} must be a positive integer`);
               }
-              for (const field of ['translationEn', 'translationUr']) {
-                if (verse[field] !== undefined && typeof verse[field] !== 'string') {
-                  invalid(`verse ${field} must be text`);
-                }
+            }
+            if (verse.sajdahNumber != null && !positiveInteger(verse.sajdahNumber)) {
+              invalid('verse sajdahNumber must be null or a positive integer');
+            }
+            for (const field of ['translationEn', 'translationUr']) {
+              if (verse[field] != null && typeof verse[field] !== 'string') {
+                invalid(`verse ${field} must be text`);
               }
             }
           }
