@@ -17,6 +17,12 @@ type AdminAiRunRequest = {
 
 type NormalizedProvider = 'local' | 'ollama' | 'openai' | 'custom';
 const OLLAMA_MODEL = 'qwen3:0.6b';
+const STUDY_TOOLS = new Set([
+  'explainer', 'smartSearch', 'hifzCoach', 'tafsirAssistant', 'studyNotes',
+  'translationSimplifier', 'askCurrentPage', 'tajweedTutor', 'dailyLesson',
+  'bookmarkAssistant', 'voiceQna', 'recitationFollow', 'studyChat',
+  'quranQuiz', 'flashcards', 'revisionPlan',
+]);
 
 type RuntimeConfig = {
   provider: NormalizedProvider;
@@ -54,6 +60,9 @@ export class PublicAiService {
 
     const verifiedSearch = request.tool === 'smartSearch' &&
       request.toolInstruction?.startsWith('SEARCH_VERIFIED_KEYS_V1') === true;
+    const verifiedStudy = STUDY_TOOLS.has(request.tool) &&
+      request.toolInstruction?.startsWith('QURAN_STUDY_KEYS_V1') === true;
+    const verifiedSelection = verifiedSearch || verifiedStudy;
     const config = await this.loadRuntimeConfig();
     const systemPrompt = [
       'You are an AI assistant inside a Quran study app.',
@@ -69,6 +78,9 @@ export class PublicAiService {
       ...(verifiedSearch ? [
         'Rank only the supplied verified Ayah keys for the query. Return a JSON object containing only a matches array of supplied keys, with at least one key when candidates exist. Return no facts, explanations, quotations, or new references.',
       ] : []),
+      ...(verifiedStudy ? [
+        'Select and rank only the supplied verified Ayah keys for the requested study activity. Return a JSON object containing only a matches array of supplied keys, with at least one key when candidates exist. Return no facts, explanations, quotations, audio assessments, scores, or new references.',
+      ] : []),
     ]
       .filter((entry) => entry.trim().length > 0)
       .join('\n');
@@ -80,11 +92,11 @@ export class PublicAiService {
         trimmedInstruction.length > 1000 || systemPrompt.length > 4000) {
       throw new HttpError(413, 'The AI request is too long. Use a shorter question and a smaller verified context.');
     }
-    const candidateKeys = verifiedSearch ? [...new Set(
+    const candidateKeys = verifiedSelection ? [...new Set(
       [...trimmedContext.replace(/\r\n/g, '\n').matchAll(/^Verse key:\s*(\d{1,3}:\d{1,3})$/gm)]
         .map((match) => match[1]),
-    )].slice(0, 3) : [];
-    const responseFormat = verifiedSearch ? {
+    )].slice(0, verifiedStudy ? 12 : 3) : [];
+    const responseFormat = verifiedSelection ? {
       type: 'object',
       properties: {
         matches: {
@@ -107,7 +119,7 @@ export class PublicAiService {
       `Response language: ${request.responseLanguage?.trim() || 'english'}`,
       `Response depth: ${request.responseDepth?.trim() || 'fast'}`,
       trimmedUserInput.length === 0
-        ? verifiedSearch
+        ? verifiedSelection
           ? 'User request: Rank the supplied verified Ayah results.'
           : 'User request: Focus on the current page only.'
         : `User request: ${trimmedUserInput}`,
@@ -115,6 +127,9 @@ export class PublicAiService {
       trimmedContext,
       ...(verifiedSearch ? [
         `Allowed Ayah keys: ${JSON.stringify(candidateKeys)}. Rank these verified results for the query and return only {"matches":[...]}. ${candidateKeys.length > 0 ? 'Select at least one supplied key.' : 'No candidates exist; matches must be empty.'}`,
+      ] : []),
+      ...(verifiedStudy ? [
+        `Allowed Ayah keys: ${JSON.stringify(candidateKeys)}. Select and rank these verified references for the requested study activity and return only {"matches":[...]}. ${candidateKeys.length > 0 ? 'Select at least one supplied key.' : 'No candidates exist; matches must be empty.'}`,
       ] : []),
     ]
       .filter((entry) => entry.trim().length > 0)
@@ -125,8 +140,9 @@ export class PublicAiService {
     }
     this.generating = true;
     let output: string;
+    let selectedStudyKey: string | undefined;
     try {
-      output = await this.runProvider(config, systemPrompt, userPrompt, responseFormat);
+      output = await this.runProvider(config, systemPrompt, userPrompt, responseFormat, verifiedStudy ? 160 : 96);
     } catch (_) {
       throw new HttpError(503, 'Ollama qwen3:0.6b is unavailable. Please try again.');
     } finally {
@@ -135,7 +151,10 @@ export class PublicAiService {
     if (!output.trim()) {
       throw new HttpError(503, 'Ollama qwen3:0.6b returned no answer. Please try again.');
     }
-    if (verifiedSearch) {
+    if (verifiedSelection) {
+      const invalidSelectionMessage = verifiedStudy
+        ? 'Ollama returned an invalid verified study result. Please try again.'
+        : 'Ollama returned an invalid verified search result. Please try again.';
       let matches: unknown;
       try {
         const result = JSON.parse(output) as Record<string, unknown>;
@@ -145,17 +164,22 @@ export class PublicAiService {
         }
         matches = result.matches;
       } catch (_) {
-        throw new HttpError(503, 'Ollama returned an invalid verified search result. Please try again.');
+        throw new HttpError(503, invalidSelectionMessage);
       }
       if (!Array.isArray(matches) || matches.length > candidateKeys.length ||
           (candidateKeys.length > 0 && matches.length === 0) ||
           new Set(matches).size !== matches.length ||
           matches.some((key: unknown) => typeof key !== 'string' || !candidateKeys.includes(key))) {
-        throw new HttpError(503, 'Ollama returned an invalid verified search result. Please try again.');
+        throw new HttpError(503, invalidSelectionMessage);
       }
       output = JSON.stringify({ matches });
+      if (verifiedStudy) selectedStudyKey = matches[0] as string | undefined;
     }
     this.verifyMarkedArabicQuotations(output, trimmedContext);
+    const sourceNotes = selectedStudyKey &&
+      (request.tool === 'tafsirAssistant' || request.tool === 'tajweedTutor')
+      ? await this.loadStudySourceNotes(request.tool, selectedStudyKey)
+      : undefined;
 
     return {
       configured: true,
@@ -167,7 +191,132 @@ export class PublicAiService {
       endpoint: config.endpoint,
       statusLabel: config.statusLabel,
       usedOnlineModel: true,
+      ...(sourceNotes ? { sourceNotes } : {}),
     };
+  }
+
+  private async loadStudySourceNotes(tool: string, verseKey: string): Promise<string[]> {
+    return this.cache.getOrSet(`public-ai:study-source:${tool}:${verseKey}`, 300_000, async () => {
+      const tafsir = tool === 'tafsirAssistant';
+      const sourceUrl = tafsir
+        ? `https://quran.com/en/${verseKey}/tafsirs/en-tafisr-ibn-kathir`
+        : `https://quran.com/${verseKey}`;
+      try {
+        const payload = await this.getStudySourceJson(tafsir
+          ? `https://api.quran.com/api/v4/tafsirs/169/by_ayah/${verseKey}`
+          : `https://api.quran.com/api/v4/verses/by_key/${verseKey}?fields=text_uthmani_tajweed`) as Record<string, unknown>;
+        if (tafsir) {
+          const value = payload?.tafsir as Record<string, unknown> | undefined;
+          if (!value || value.resource_id !== 169 || !value.verses ||
+              typeof value.verses !== 'object' || Array.isArray(value.verses) ||
+              !Object.prototype.hasOwnProperty.call(value.verses, verseKey) || typeof value.text !== 'string') {
+            throw new Error('Tafsir source did not match the requested Ayah.');
+          }
+          const excerpt = this.studySourceText(value.text, 1000);
+          if (!excerpt) throw new Error('Tafsir source contained no readable excerpt.');
+          return [`Ibn Kathir (Abridged), Quran.com resource 169, Ayah ${verseKey}. Publisher excerpt, not an AI paraphrase:\n${excerpt}\nSource: ${sourceUrl}`];
+        }
+        const verse = payload?.verse as Record<string, unknown> | undefined;
+        if (!verse || verse.verse_key !== verseKey || typeof verse.text_uthmani_tajweed !== 'string') {
+          throw new Error('Tajweed source did not match the requested Ayah.');
+        }
+        const allowed = new Set([
+          'ham_wasl', 'slnt', 'laam_shamsiyah', 'madda_normal',
+          'madda_permissible', 'madda_necessary', 'madda_obligatory',
+          'qalaqah', 'ghunnah', 'ikhfa', 'ikhafa', 'ikhfa_shafawi',
+          'ikhafa_shafawi', 'iqlab', 'idgham_shafawi', 'idgham_ghunnah',
+          'idgham_wo_ghunnah', 'idgham_mutajanisayn', 'idgham_mutaqaribayn',
+        ]);
+        const annotations: string[] = [];
+        const seen = new Set<string>();
+        for (const match of verse.text_uthmani_tajweed.matchAll(/<tajweed\b([^>]*)>([\s\S]*?)<\/tajweed>/gi)) {
+          const rule = /(?:^|\s)class\s*=\s*(?:"([a-z_]+)"|'([a-z_]+)'|([a-z_]+)(?=\s|$))/i.exec(match[1]);
+          const name = rule?.[1] ?? rule?.[2] ?? rule?.[3] ?? '';
+          const segment = this.studySourceText(match[2], 80);
+          if (!allowed.has(name) || seen.has(name) || !segment || /<tajweed\b/i.test(match[2])) continue;
+          seen.add(name);
+          annotations.push(`${name.replace(/_/g, ' ')} — source-marked segment: ${segment}`);
+          if (annotations.length === 3) break;
+        }
+        return [
+          `Quran.com Tajweed source annotations for Ayah ${verseKey}; text-based examples, not a pronunciation assessment.${annotations.length === 0 ? ' No supported annotations were returned.' : ''}\nSource: ${sourceUrl}`,
+          ...annotations,
+        ];
+      } catch (_) {
+        return [`${tafsir ? 'Ibn Kathir tafsir' : 'Quran.com Tajweed annotations'} for Ayah ${verseKey} are temporarily unavailable. No source content was fabricated. Read the publisher source: ${sourceUrl}`];
+      }
+    });
+  }
+
+  private studySourceText(html: string, limit: number): string {
+    const entities: Record<string, string> = {
+      amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+      ndash: '–', mdash: '—', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+    };
+    const text = html.replace(/&#(x[0-9a-f]+|\d+);/gi, (_, encoded: string) => {
+      const code = encoded[0].toLowerCase() === 'x' ? parseInt(encoded.slice(1), 16) : Number(encoded);
+      return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+        ? String.fromCodePoint(code) : '';
+    }).replace(/&([a-z]+);/gi, (entity: string, name: string) => entities[name.toLowerCase()] ?? entity)
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (text.length <= limit) return text;
+    const boundary = text.lastIndexOf(' ', limit - 1);
+    return boundary > 0 ? `${text.slice(0, boundary).trimEnd()}…` : '';
+  }
+
+  private getStudySourceJson(urlString: string): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const finish = (error: Error | null, value?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        if (error) reject(error);
+        else resolve(value);
+      };
+      const request = https.get(urlString, {
+        agent: HTTPS_KEEP_ALIVE_AGENT,
+        headers: { Accept: 'application/json' },
+      }, (response) => {
+        if (response.statusCode !== 200) {
+          response.destroy();
+          request.destroy();
+          finish(new Error('Publisher source was unavailable.'));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let received = 0;
+        response.on('data', (chunk: Buffer | string) => {
+          if (settled) return;
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          received += buffer.length;
+          if (received > 1048576) {
+            response.destroy();
+            request.destroy();
+            finish(new Error('Publisher source exceeded its limit.'));
+            return;
+          }
+          chunks.push(buffer);
+        });
+        response.on('error', (error) => finish(error));
+        response.on('aborted', () => finish(new Error('Publisher source was interrupted.')));
+        response.on('end', () => {
+          if (settled) return;
+          try {
+            finish(null, JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '')));
+          } catch (_) {
+            finish(new Error('Publisher source returned invalid JSON.'));
+          }
+        });
+      });
+      request.on('error', (error) => finish(error));
+      deadline = setTimeout(() => {
+        request.destroy();
+        finish(new Error('Publisher source timed out.'));
+      }, 5000);
+    });
   }
 
   private async runProvider(
@@ -175,8 +324,9 @@ export class PublicAiService {
     systemPrompt: string,
     userPrompt: string,
     responseFormat?: Record<string, unknown>,
+    structuredTokenLimit = 96,
   ): Promise<string> {
-    return this.runOllama(config, systemPrompt, userPrompt, responseFormat);
+    return this.runOllama(config, systemPrompt, userPrompt, responseFormat, structuredTokenLimit);
   }
 
   private async runOllama(
@@ -184,6 +334,7 @@ export class PublicAiService {
     systemPrompt: string,
     userPrompt: string,
     responseFormat?: Record<string, unknown>,
+    structuredTokenLimit = 96,
   ): Promise<string> {
     const endpoint = this.normalizeBaseUrl(
       config.endpoint || 'http://127.0.0.1:11434',
@@ -197,7 +348,7 @@ export class PublicAiService {
       truncate: false,
       keep_alive: '2m',
       ...(responseFormat ? { format: responseFormat } : {}),
-      options: { num_ctx: 4096, num_predict: responseFormat ? 96 : 384, num_thread: 1 },
+      options: { num_ctx: 4096, num_predict: responseFormat ? structuredTokenLimit : 384, num_thread: 1 },
     };
 
     const response = await this.postJson(`${endpoint}/api/generate`, payload, {
