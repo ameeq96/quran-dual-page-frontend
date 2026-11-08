@@ -61,6 +61,7 @@ export class PublicAiService {
       'Context may be a Surah-level excerpt, not verified alignment to the scanned page or its printed lines.',
       'Never claim to hear a recording or assess pronunciation, makharij, or acoustic Tajweed from text.',
       'Do not invent an Ayah reference, scan position, or accuracy score. Explain when the supplied evidence is insufficient.',
+      'Do not regenerate Arabic Quran quotations. Refer to verified Ayah keys and the original Quran text displayed by the app.',
       'Keep answers structured, concise, and practical.',
       config.systemPrompt,
     ]
@@ -104,6 +105,7 @@ export class PublicAiService {
     if (!output.trim()) {
       throw new HttpError(503, 'Ollama qwen3:0.6b returned no answer. Please try again.');
     }
+    this.verifyMarkedArabicQuotations(output, trimmedContext);
 
     return {
       configured: true,
@@ -293,6 +295,27 @@ export class PublicAiService {
       return trimmed.slice(0, -1);
     }
     return trimmed;
+  }
+
+  private verifyMarkedArabicQuotations(output: string, context: string): void {
+    const markedArabic = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0898-\u089F\u08CA-\u08FF]/u;
+    if (!markedArabic.test(output.normalize('NFKC'))) return;
+    const baseWords = (value: string) => value.normalize('NFKC')
+      .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0898-\u089F\u08CA-\u08FF]|\p{M}/gu, '')
+      .replace(/[\u0640\u200C-\u200F\u202A-\u202E\u2066-\u2069]/gu, '')
+      .replace(/[\p{P}\p{S}\p{N}]/gu, ' ')
+      .replace(/\s+/gu, ' ').trim();
+    const verifiedContext = ` ${baseWords(context)} `;
+    const phrases = output.normalize('NFKC').match(
+      /[\p{Script_Extensions=Arabic}\u200C-\u200F]+(?:\s+[\p{Script_Extensions=Arabic}\u200C-\u200F]+)*/gu,
+    ) ?? [];
+    for (const phrase of phrases) {
+      if (!markedArabic.test(phrase)) continue;
+      const quotation = baseWords(phrase);
+      if (!quotation || !verifiedContext.includes(` ${quotation} `)) {
+        throw new HttpError(503, 'Ollama returned an unverified Arabic quotation. Please read the original Quran text and try again.');
+      }
+    }
   }
 
   private parseCustomHeaders(rawValue: string): Record<string, string> {
