@@ -34,7 +34,9 @@ import {
 
 type Setting = { id: number; key: string; value: string };
 type Flag = { id: number; key: string; enabled: boolean };
-type AiProviderMode = 'local' | 'ollama' | 'chatgpt' | 'custom';
+type AiProviderMode = 'ollama';
+const aiDefaultModel = 'qwen3:0.6b';
+const aiDefaultEndpoint = 'http://127.0.0.1:11434';
 
 const suggestedSettingKeys = [
   'app_title',
@@ -69,53 +71,14 @@ const aiProviderOptions: Array<{
   description: string;
 }> = [
   {
-    value: 'local',
-    label: 'Local assistant',
-    description: 'Mobile app will use the built-in local helper only.',
-  },
-  {
     value: 'ollama',
     label: 'Ollama',
     description: 'Mobile app will call the backend AI proxy, which forwards to Ollama.',
   },
-  {
-    value: 'chatgpt',
-    label: 'ChatGPT',
-    description: 'Mobile app will call the backend AI proxy, which forwards to OpenAI.',
-  },
-  {
-    value: 'custom',
-    label: 'Custom AI',
-    description: 'Mobile app will call your custom AI endpoint through the backend proxy.',
-  },
 ];
 
-function normalizeAiProvider(value?: string | null): AiProviderMode {
-  switch ((value ?? '').trim().toLowerCase()) {
-    case 'ollama':
-      return 'ollama';
-    case 'openai':
-    case 'chatgpt':
-      return 'chatgpt';
-    case 'custom':
-      return 'custom';
-    default:
-      return 'local';
-  }
-}
-
-function defaultAiStatusLabel(provider: AiProviderMode) {
-  switch (provider) {
-    case 'ollama':
-      return 'Ollama is active in the mobile app.';
-    case 'chatgpt':
-      return 'ChatGPT is active in the mobile app.';
-    case 'custom':
-      return 'Custom AI endpoint is active in the mobile app.';
-    case 'local':
-    default:
-      return 'Local assistant is active in the mobile app.';
-  }
+function defaultAiStatusLabel() {
+  return 'Ollama qwen3:0.6b is configured for AI requests.';
 }
 
 export default function SettingsPage() {
@@ -133,10 +96,7 @@ export default function SettingsPage() {
   const settingEditRevision = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [aiProvider, setAiProvider] = useState<AiProviderMode>('local');
-  const [aiModel, setAiModel] = useState('');
-  const [aiEndpoint, setAiEndpoint] = useState('');
-  const [aiSecret, setAiSecret] = useState('');
+  const [aiProvider, setAiProvider] = useState<AiProviderMode>('ollama');
   const [aiStatusLabel, setAiStatusLabel] = useState('');
 
   const pageSize = 10;
@@ -216,27 +176,12 @@ export default function SettingsPage() {
 
   const loadAiRuntime = async () => {
     try {
-      const [
-        providerSetting,
-        modelSetting,
-        endpointSetting,
-        secretSetting,
-        statusLabelSetting,
-      ] = await Promise.all([
-        fetchSettingByKey('ai_provider'),
-        fetchSettingByKey('ai_model'),
-        fetchSettingByKey('ai_endpoint'),
-        fetchSettingByKey('ai_secret'),
-        fetchSettingByKey('ai_status_label'),
-      ]);
-
-      const provider = normalizeAiProvider(providerSetting?.value);
-      setAiProvider(provider);
-      setAiModel(modelSetting?.value ?? '');
-      setAiEndpoint(endpointSetting?.value ?? '');
-      setAiSecret(secretSetting?.value ?? '');
+      const statusLabelSetting = await fetchSettingByKey('ai_status_label');
+      const statusLabel = statusLabelSetting?.value?.trim();
       setAiStatusLabel(
-        statusLabelSetting?.value?.trim() || defaultAiStatusLabel(provider),
+        !statusLabel || /^(Ollama|ChatGPT|Custom AI endpoint|Local assistant) is active in the mobile app\.$/.test(statusLabel)
+          ? defaultAiStatusLabel()
+          : statusLabel,
       );
     } catch (err) {
       setError((err as Error).message);
@@ -260,12 +205,11 @@ export default function SettingsPage() {
       const normalizedProvider = aiProvider;
       await Promise.all([
         saveSettingByKey('ai_provider', normalizedProvider),
-        saveSettingByKey('ai_model', aiModel.trim()),
-        saveSettingByKey('ai_endpoint', aiEndpoint.trim()),
-        saveSettingByKey('ai_secret', aiSecret.trim()),
+        saveSettingByKey('ai_model', aiDefaultModel),
+        saveSettingByKey('ai_endpoint', aiDefaultEndpoint),
         saveSettingByKey(
           'ai_status_label',
-          aiStatusLabel.trim() || defaultAiStatusLabel(normalizedProvider),
+          aiStatusLabel.trim() || defaultAiStatusLabel(),
         ),
       ]);
       await Promise.all([
@@ -286,36 +230,9 @@ export default function SettingsPage() {
     aiProviderOptions.find((option) => option.value === aiProvider) ??
     aiProviderOptions[0];
 
-  const providerRequiresSecret =
-    aiProvider === 'chatgpt' || aiProvider === 'custom';
-
-  const providerUsesEndpoint =
-    aiProvider === 'ollama' || aiProvider === 'chatgpt' || aiProvider === 'custom';
-
-  const providerUsesModel =
-    aiProvider === 'ollama' || aiProvider === 'chatgpt' || aiProvider === 'custom';
-
-  const endpointPlaceholder =
-    aiProvider === 'ollama'
-      ? 'http://127.0.0.1:11434'
-      : aiProvider === 'chatgpt'
-        ? 'https://api.openai.com/v1/responses'
-        : aiProvider === 'custom'
-          ? 'https://your-custom-endpoint.example.com'
-          : 'No endpoint needed for local assistant';
-
-  const modelPlaceholder =
-    aiProvider === 'ollama'
-      ? 'qwen2.5:1.5b-instruct'
-      : aiProvider === 'chatgpt'
-        ? 'gpt-4o-mini'
-        : aiProvider === 'custom'
-          ? 'your-custom-model'
-          : 'Built-in local mode';
-
   useEffect(() => {
     if (aiStatusLabel.trim().length === 0) {
-      setAiStatusLabel(defaultAiStatusLabel(aiProvider));
+      setAiStatusLabel(defaultAiStatusLabel());
       return;
     }
   }, [aiProvider, aiStatusLabel]);
@@ -336,6 +253,12 @@ export default function SettingsPage() {
     const editRevision = settingEditRevision.current;
     if (!savedKey) {
       setError('Setting key is required.');
+      return;
+    }
+    if ((savedKey === 'ai_provider' && settingValue.trim() !== 'ollama') ||
+        (savedKey === 'ai_model' && settingValue.trim() !== aiDefaultModel) ||
+        (savedKey === 'ai_endpoint' && settingValue.trim() !== aiDefaultEndpoint)) {
+      setError('AI requests use only Ollama qwen3:0.6b at http://127.0.0.1:11434.');
       return;
     }
 
@@ -388,7 +311,7 @@ export default function SettingsPage() {
           <div className={cardTitleGroupClass}>
             <h2 className={cardTitleClass}>AI Runtime Control</h2>
             <p className={cardSubtitleClass}>
-              Choose what the mobile app should run for AI requests. The app reflects this mode from admin config.
+              Configure server-hosted Ollama qwen3:0.6b for AI requests. Saving configuration does not verify model availability.
             </p>
           </div>
         </div>
@@ -413,41 +336,23 @@ export default function SettingsPage() {
           </FieldLabel>
           <FieldLabel label="Model">
             <Input
-              value={aiModel}
-              onChange={(e) => setAiModel(e.target.value)}
-              placeholder={modelPlaceholder}
-              disabled={!providerUsesModel}
+              value={aiDefaultModel}
+              readOnly
             />
           </FieldLabel>
           <FieldLabel label="Endpoint">
             <Input
-              value={aiEndpoint}
-              onChange={(e) => setAiEndpoint(e.target.value)}
-              placeholder={endpointPlaceholder}
-              disabled={!providerUsesEndpoint}
+              value={aiDefaultEndpoint}
+              readOnly
             />
           </FieldLabel>
           <FieldLabel label="Status label">
             <Input
               value={aiStatusLabel}
               onChange={(e) => setAiStatusLabel(e.target.value)}
-              placeholder={defaultAiStatusLabel(aiProvider)}
+              placeholder={defaultAiStatusLabel()}
             />
           </FieldLabel>
-          {providerRequiresSecret ? (
-            <FieldLabel label="Secret / API key">
-              <Input
-                type="password"
-                value={aiSecret}
-                onChange={(e) => setAiSecret(e.target.value)}
-                placeholder={
-                  aiProvider === 'chatgpt'
-                    ? 'OpenAI API key'
-                    : 'Bearer token or provider secret'
-                }
-              />
-            </FieldLabel>
-          ) : null}
         </div>
         <div className={formActionsClass}>
           <Button disabled={busy} onClick={handleSaveAiRuntime}>

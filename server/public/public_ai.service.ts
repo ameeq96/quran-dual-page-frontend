@@ -16,6 +16,7 @@ type AdminAiRunRequest = {
 };
 
 type NormalizedProvider = 'local' | 'ollama' | 'openai' | 'custom';
+const OLLAMA_MODEL = 'qwen3:0.6b';
 
 type RuntimeConfig = {
   provider: NormalizedProvider;
@@ -39,6 +40,8 @@ const HTTPS_KEEP_ALIVE_AGENT = new https.Agent({
 });
 
 export class PublicAiService {
+  private generating = false;
+
   constructor(
     private readonly settingsRepo: Repository<AppSetting>,
     private readonly cache: MemoryCacheService,
@@ -50,20 +53,14 @@ export class PublicAiService {
     }
 
     const config = await this.loadRuntimeConfig();
-    if (config.provider === 'local') {
-      return {
-        configured: false,
-        provider: config.provider,
-        providerLabel: config.providerLabel,
-        statusLabel: config.statusLabel || 'AI provider is set to local mode.',
-      };
-    }
-
     const systemPrompt = [
       'You are an AI assistant inside a Quran study app.',
       'Use only the provided Quran page context and request details.',
       'Do not invent unsupported tafsir, fiqh rulings, or historical claims.',
       'If the available page context is limited, state that clearly.',
+      'Context may be a Surah-level excerpt, not verified alignment to the scanned page or its printed lines.',
+      'Never claim to hear a recording or assess pronunciation, makharij, or acoustic Tajweed from text.',
+      'Do not invent an Ayah reference, scan position, or accuracy score. Explain when the supplied evidence is insufficient.',
       'Keep answers structured, concise, and practical.',
       config.systemPrompt,
     ]
@@ -73,6 +70,10 @@ export class PublicAiService {
     const trimmedInstruction = request.toolInstruction?.trim() ?? '';
     const trimmedUserInput = request.userInput?.trim() ?? '';
     const trimmedContext = request.contextPromptBlock?.trim() ?? '';
+    if (trimmedContext.length > 8000 || trimmedUserInput.length > 4000 ||
+        trimmedInstruction.length > 1000 || systemPrompt.length > 4000) {
+      throw new HttpError(413, 'The AI request is too long. Use a shorter question and a smaller verified context.');
+    }
 
     const userPrompt = [
       `Tool: ${request.toolTitle?.trim() || request.tool}`,
@@ -88,14 +89,20 @@ export class PublicAiService {
       .filter((entry) => entry.trim().length > 0)
       .join('\n');
 
-    const output = await this.runProvider(config, systemPrompt, userPrompt);
+    if (this.generating) {
+      throw new HttpError(503, 'Ollama is busy. Wait for the current answer and try again.');
+    }
+    this.generating = true;
+    let output: string;
+    try {
+      output = await this.runProvider(config, systemPrompt, userPrompt);
+    } catch (_) {
+      throw new HttpError(503, 'Ollama qwen3:0.6b is unavailable. Please try again.');
+    } finally {
+      this.generating = false;
+    }
     if (!output.trim()) {
-      return {
-        configured: false,
-        provider: config.provider,
-        providerLabel: config.providerLabel,
-        statusLabel: 'AI provider returned an empty response.',
-      };
+      throw new HttpError(503, 'Ollama qwen3:0.6b returned no answer. Please try again.');
     }
 
     return {
@@ -116,17 +123,7 @@ export class PublicAiService {
     systemPrompt: string,
     userPrompt: string,
   ): Promise<string> {
-    switch (config.provider) {
-      case 'ollama':
-        return this.runOllama(config, systemPrompt, userPrompt);
-      case 'openai':
-        return this.runOpenAi(config, systemPrompt, userPrompt);
-      case 'custom':
-        return this.runCustom(config, systemPrompt, userPrompt);
-      case 'local':
-      default:
-        return '';
-    }
+    return this.runOllama(config, systemPrompt, userPrompt);
   }
 
   private async runOllama(
@@ -138,10 +135,14 @@ export class PublicAiService {
       config.endpoint || 'http://127.0.0.1:11434',
     );
     const payload = {
-      model: config.model || 'qwen2.5:1.5b-instruct',
+      model: OLLAMA_MODEL,
       system: systemPrompt,
       prompt: userPrompt,
       stream: false,
+      think: false,
+      truncate: false,
+      keep_alive: '2m',
+      options: { num_ctx: 4096, num_predict: 384, num_thread: 1 },
     };
 
     const response = await this.postJson(`${endpoint}/api/generate`, payload, {
@@ -150,7 +151,14 @@ export class PublicAiService {
       ...config.customHeaders,
     });
 
-    return this.extractGeneratedText(response.body);
+    if (!response.body || typeof response.body !== 'object' || Array.isArray(response.body)) {
+      throw new HttpError(503, 'Ollama returned an invalid response.');
+    }
+    const result = response.body as Record<string, unknown>;
+    if (result.model !== OLLAMA_MODEL || result.done !== true || typeof result.response !== 'string') {
+      throw new HttpError(503, 'Ollama returned an invalid model response.');
+    }
+    return result.response;
   }
 
   private async runOpenAi(
@@ -220,20 +228,15 @@ export class PublicAiService {
     return this.cache.getOrSet('public-ai:runtime-config', 15_000, async () => {
       const settings = await this.settingsRepo.find();
       const values = new Map(settings.map((entry) => [entry.key, entry.value]));
-      const rawProvider = (values.get('ai_provider') ?? 'local').trim();
-      const provider = this.normalizeProvider(rawProvider);
-
       return {
-        provider,
-        providerLabel: this.providerLabel(provider, rawProvider),
-        model: (values.get('ai_model') ?? '').trim(),
-        endpoint: (values.get('ai_endpoint') ?? '').trim(),
-        secret: (values.get('ai_secret') ?? '').trim(),
-        statusLabel: (values.get('ai_status_label') ?? '').trim(),
+        provider: 'ollama',
+        providerLabel: 'Ollama',
+        model: OLLAMA_MODEL,
+        endpoint: 'http://127.0.0.1:11434',
+        secret: '',
+        statusLabel: 'Ollama qwen3:0.6b',
         systemPrompt: (values.get('ai_system_prompt') ?? '').trim(),
-        customHeaders: this.parseCustomHeaders(
-          values.get('ai_custom_headers_json') ?? '',
-        ),
+        customHeaders: {},
       };
     });
   }
@@ -335,10 +338,21 @@ export class PublicAiService {
         },
         (response) => {
           const chunks: Buffer[] = [];
+          let receivedBytes = 0;
 
           response.on('data', (chunk: Buffer | string) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            receivedBytes += buffer.length;
+            if (receivedBytes > 65536) {
+              response.destroy(new Error('Ollama response exceeded its limit.'));
+              request.destroy();
+              reject(new HttpError(503, 'Ollama returned an oversized response.'));
+              return;
+            }
+            chunks.push(buffer);
           });
+          response.on('error', reject);
+          response.on('aborted', () => reject(new HttpError(503, 'Ollama response was interrupted.')));
 
           response.on('end', () => {
             const text = Buffer.concat(chunks).toString('utf8');
@@ -361,8 +375,12 @@ export class PublicAiService {
       );
 
       request.on('error', (error) => reject(error));
+      const deadline = setTimeout(() => {
+        request.destroy(new Error('Ollama request timed out.'));
+      }, 90000);
+      request.once('close', () => clearTimeout(deadline));
       request.setTimeout(90000, () => {
-        request.destroy(new Error('AI provider request timed out.'));
+        request.destroy(new Error('Ollama request timed out.'));
       });
       request.write(payload);
       request.end();
