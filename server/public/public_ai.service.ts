@@ -52,6 +52,8 @@ export class PublicAiService {
       throw new HttpError(400, 'tool is required');
     }
 
+    const verifiedSearch = request.tool === 'smartSearch' &&
+      request.toolInstruction?.startsWith('SEARCH_VERIFIED_KEYS_V1') === true;
     const config = await this.loadRuntimeConfig();
     const systemPrompt = [
       'You are an AI assistant inside a Quran study app.',
@@ -64,6 +66,9 @@ export class PublicAiService {
       'Do not regenerate Arabic Quran quotations. Refer to verified Ayah keys and the original Quran text displayed by the app.',
       'Keep answers structured, concise, and practical.',
       config.systemPrompt,
+      ...(verifiedSearch ? [
+        'Rank only the supplied verified Ayah keys for the query. Return a JSON object containing only a matches array of supplied keys, with at least one key when candidates exist. Return no facts, explanations, quotations, or new references.',
+      ] : []),
     ]
       .filter((entry) => entry.trim().length > 0)
       .join('\n');
@@ -75,6 +80,26 @@ export class PublicAiService {
         trimmedInstruction.length > 1000 || systemPrompt.length > 4000) {
       throw new HttpError(413, 'The AI request is too long. Use a shorter question and a smaller verified context.');
     }
+    const candidateKeys = verifiedSearch ? [...new Set(
+      [...trimmedContext.replace(/\r\n/g, '\n').matchAll(/^Verse key:\s*(\d{1,3}:\d{1,3})$/gm)]
+        .map((match) => match[1]),
+    )].slice(0, 3) : [];
+    const responseFormat = verifiedSearch ? {
+      type: 'object',
+      properties: {
+        matches: {
+          type: 'array',
+          items: candidateKeys.length > 0
+            ? { type: 'string', enum: candidateKeys }
+            : { type: 'string' },
+          minItems: candidateKeys.length > 0 ? 1 : 0,
+          maxItems: candidateKeys.length,
+          uniqueItems: true,
+        },
+      },
+      required: ['matches'],
+      additionalProperties: false,
+    } : undefined;
 
     const userPrompt = [
       `Tool: ${request.toolTitle?.trim() || request.tool}`,
@@ -82,10 +107,15 @@ export class PublicAiService {
       `Response language: ${request.responseLanguage?.trim() || 'english'}`,
       `Response depth: ${request.responseDepth?.trim() || 'fast'}`,
       trimmedUserInput.length === 0
-        ? 'User request: Focus on the current page only.'
+        ? verifiedSearch
+          ? 'User request: Rank the supplied verified Ayah results.'
+          : 'User request: Focus on the current page only.'
         : `User request: ${trimmedUserInput}`,
       '',
       trimmedContext,
+      ...(verifiedSearch ? [
+        `Allowed Ayah keys: ${JSON.stringify(candidateKeys)}. Rank these verified results for the query and return only {"matches":[...]}. ${candidateKeys.length > 0 ? 'Select at least one supplied key.' : 'No candidates exist; matches must be empty.'}`,
+      ] : []),
     ]
       .filter((entry) => entry.trim().length > 0)
       .join('\n');
@@ -96,7 +126,7 @@ export class PublicAiService {
     this.generating = true;
     let output: string;
     try {
-      output = await this.runProvider(config, systemPrompt, userPrompt);
+      output = await this.runProvider(config, systemPrompt, userPrompt, responseFormat);
     } catch (_) {
       throw new HttpError(503, 'Ollama qwen3:0.6b is unavailable. Please try again.');
     } finally {
@@ -104,6 +134,26 @@ export class PublicAiService {
     }
     if (!output.trim()) {
       throw new HttpError(503, 'Ollama qwen3:0.6b returned no answer. Please try again.');
+    }
+    if (verifiedSearch) {
+      let matches: unknown;
+      try {
+        const result = JSON.parse(output) as Record<string, unknown>;
+        if (!result || typeof result !== 'object' || Array.isArray(result) ||
+            Object.keys(result).length !== 1 || !Object.prototype.hasOwnProperty.call(result, 'matches')) {
+          throw new Error('Invalid verified search response.');
+        }
+        matches = result.matches;
+      } catch (_) {
+        throw new HttpError(503, 'Ollama returned an invalid verified search result. Please try again.');
+      }
+      if (!Array.isArray(matches) || matches.length > candidateKeys.length ||
+          (candidateKeys.length > 0 && matches.length === 0) ||
+          new Set(matches).size !== matches.length ||
+          matches.some((key: unknown) => typeof key !== 'string' || !candidateKeys.includes(key))) {
+        throw new HttpError(503, 'Ollama returned an invalid verified search result. Please try again.');
+      }
+      output = JSON.stringify({ matches });
     }
     this.verifyMarkedArabicQuotations(output, trimmedContext);
 
@@ -124,14 +174,16 @@ export class PublicAiService {
     config: RuntimeConfig,
     systemPrompt: string,
     userPrompt: string,
+    responseFormat?: Record<string, unknown>,
   ): Promise<string> {
-    return this.runOllama(config, systemPrompt, userPrompt);
+    return this.runOllama(config, systemPrompt, userPrompt, responseFormat);
   }
 
   private async runOllama(
     config: RuntimeConfig,
     systemPrompt: string,
     userPrompt: string,
+    responseFormat?: Record<string, unknown>,
   ): Promise<string> {
     const endpoint = this.normalizeBaseUrl(
       config.endpoint || 'http://127.0.0.1:11434',
@@ -144,7 +196,8 @@ export class PublicAiService {
       think: false,
       truncate: false,
       keep_alive: '2m',
-      options: { num_ctx: 4096, num_predict: 384, num_thread: 1 },
+      ...(responseFormat ? { format: responseFormat } : {}),
+      options: { num_ctx: 4096, num_predict: responseFormat ? 96 : 384, num_thread: 1 },
     };
 
     const response = await this.postJson(`${endpoint}/api/generate`, payload, {
